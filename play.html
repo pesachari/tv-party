@@ -30,6 +30,8 @@
   header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #ffffff0d; }
   header i { width: 18px; height: 18px; border-radius: 50%; }
   header b { flex: 1; font-size: 18px; }
+  #mus { padding: 8px 12px; border-radius: 10px; background: #ffffff1a; font-size: 17px; }
+  #mus[hidden], #quit[hidden] { display: none; }
   #quit { padding: 8px 14px; border-radius: 10px; background: #ffffff1a; font-size: 15px; }
   #pad { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px; gap: 12px; touch-action: none; }
   .msg { flex: 1; display: grid; place-items: center; text-align: center; font-size: 26px; font-weight: 700; padding: 20px; line-height: 1.4; }
@@ -66,6 +68,32 @@
   .stick { position: absolute; width: 40%; height: 40%; left: 30%; top: 30%; border-radius: 50%; box-shadow: 0 6px 20px #0009; }
   .dash { width: min(40vw, 26vh); aspect-ratio: 1; border-radius: 50%; font-size: 24px; font-weight: 900; background: radial-gradient(circle at 35% 30%, #ffd43b, #f08c00); color: #3b2300; }
   .dash:active, .dash.hit { transform: scale(.94); filter: brightness(1.2); }
+
+  .bgrid { display: grid; gap: 3px; width: min(100%, 58vh); aspect-ratio: 1; align-self: center; margin: auto 0; direction: ltr; }
+  .bc { border-radius: 4px; display: grid; place-items: center; font-weight: 900; font-size: 18px; position: relative; }
+  .bc.w { background: #1d4e89; } .bc.s { background: #9aa5b4; } .bc.x { background: #e03131; } .bc.x::after { content: '✕'; }
+  .bc.o { background: #1d4e89; } .bc.o::after { content: ''; width: 30%; height: 30%; border-radius: 50%; background: #fff; }
+  .bc.k { background: #5c1010; } .bc.aim { background: #fcc419; }
+  .bc.l { background: #e8cfa0; border-radius: 0; } .bc.d { background: #7a4a24; border-radius: 0; }
+  .bc.pr, .bc.pR, .bc.pb, .bc.pB { background: #7a4a24; border-radius: 0; }
+  .bc.pr::after, .bc.pR::after, .bc.pb::after, .bc.pB::after { content: ''; position: absolute; inset: 12%; border-radius: 50%; box-shadow: 0 3px 0 #0006; }
+  .bc.pr::after, .bc.pR::after { background: radial-gradient(circle at 35% 30%, #ff8787, #e03131); }
+  .bc.pb::after, .bc.pB::after { background: radial-gradient(circle at 35% 30%, #868e96, #212529); }
+  .bc.pR::before, .bc.pB::before { content: '👑'; position: relative; z-index: 2; font-size: 14px; }
+  .bc.hl { outline: 3px solid #51cf66; outline-offset: -3px; }
+  .bc.hl.d::after { content: ''; width: 34%; height: 34%; border-radius: 50%; background: #51cf66; }
+  .bc.sel::after { box-shadow: 0 0 0 4px #51cf66 !important; }
+  .brow { display: flex; gap: 10px; }
+  .brow button { flex: 1; padding: 16px; border-radius: 16px; background: #ffffff1c; font-size: 20px; font-weight: 800; }
+  .brow button:active { background: #4dabf7; }
+
+  .weps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .wep { border-radius: 14px; background: #ffffff14; padding: 8px 2px; display: flex; flex-direction: column; align-items: center; gap: 2px; border: 2px solid transparent; }
+  .wep span { font-size: 26px; } .wep b { font-size: 13px; } .wep small { font-size: 12px; opacity: .75; }
+  .wep.sel { border-color: #fcc419; background: #fcc41933; } .wep:disabled { opacity: .3; }
+  .sling { flex: 1; position: relative; border-radius: 22px; background: radial-gradient(circle, #ffffff12, #ffffff05); border: 2px dashed #ffffff30; touch-action: none; overflow: hidden; }
+  .sling canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .slhint { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 20px; opacity: .7; font-size: 18px; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -81,7 +109,7 @@
 </div>
 
 <div id="app" hidden>
-  <header><i id="dot"></i><b id="me"></b><button id="quit" hidden>⏹ חזרה לתפריט</button></header>
+  <header><i id="dot"></i><b id="me"></b><button id="mus" hidden>🔊</button><button id="quit" hidden>⏹ חזרה לתפריט</button></header>
   <div id="pad"></div>
 </div>
 
@@ -158,6 +186,7 @@ function onMsg(m) {
 }
 
 $('quit').onclick = () => { buzz(20); send({ t: 'quit' }); };
+$('mus').onclick = () => { buzz(20); send({ t: 'music' }); };
 
 // ---------------------------------------------------------------- UI builders
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -167,6 +196,7 @@ function render(m) {
   cleanup.forEach(f => f()); cleanup = [];
   const pad = $('pad'); pad.innerHTML = '';
   $('quit').hidden = !(m.host && m.inGame);
+  $('mus').hidden = !m.host; $('mus').textContent = m.music === false ? '🔇' : '🔊';
   (UI[m.ui] || UI.wait)(pad, m);
 }
 
@@ -273,6 +303,67 @@ const UI = {
       if (qx !== lastX || qy !== lastY) { send({ t: 'in', x: qx, y: qy }); lastX = qx; lastY = qy; }
     }, 40);
     cleanup.push(() => clearInterval(iv));
+  },
+
+  grid(pad, m) {
+    if (m.title) pad.appendChild(el('div', 'hint', esc(m.title)));
+    const n = m.size || 10, cells = m.cells || '';
+    const CLS = { '.': 'w', s: 's', x: 'x', o: 'o', k: 'k', l: 'l', d: 'd', r: 'pr', R: 'pR', b: 'pb', B: 'pB' };
+    const hl = new Set(m.hl || []);
+    const g = el('div', 'bgrid'); g.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+    for (let v = 0; v < n * n; v++) {
+      const i = m.flip ? n * n - 1 - v : v, ch = cells[i];
+      const c = el('div', 'bc ' + (CLS[ch] || 'w') + (hl.has(i) ? ' hl' : '') + (m.sel === i ? ' sel' : ''));
+      if (m.mode === 'fire' && ch === '.') c.onclick = () => { buzz(20); c.className = 'bc aim'; send({ t: 'in', cell: i }); };
+      if (m.mode === 'tap') c.onclick = () => { buzz(15); send({ t: 'in', cell: i }); };
+      g.appendChild(c);
+    }
+    pad.appendChild(g);
+    if (m.buttons) {
+      const row = el('div', 'brow');
+      m.buttons.forEach(b => { const x = el('button', null, esc(b.label)); x.onclick = () => { buzz(20); send({ t: 'in', btn: b.id }); }; row.appendChild(x); });
+      pad.appendChild(row);
+    }
+  },
+
+  fort(pad, m) {
+    pad.appendChild(el('div', 'hint', esc(m.title || '')));
+    const row = el('div', 'weps');
+    m.weapons.forEach((w, i) => {
+      const b = el('button', 'wep' + (i === m.sel ? ' sel' : ''), `<span>${esc(w.icon)}</span><b>${esc(w.name)}</b><small>${w.ammo >= 99 ? '∞' : '×' + w.ammo}</small>`);
+      b.disabled = w.ammo <= 0;
+      b.onclick = () => { buzz(15); row.querySelectorAll('.wep').forEach(x => x.classList.remove('sel')); b.classList.add('sel'); send({ t: 'in', w: i }); };
+      row.appendChild(b);
+    });
+    pad.appendChild(row);
+    const sl = el('div', 'sling'), cv = document.createElement('canvas'), hintEl = el('div', 'slhint', 'גוררים אחורה כמו בקלע 🎯<br>הכיוון ההפוך = לאן יורים · אורך המשיכה = עוצמה<br>משחררים כדי לירות');
+    sl.appendChild(cv); sl.appendChild(hintEl); pad.appendChild(sl);
+    let st = null, a = 0, pw = 0, lastSend = 0;
+    const draw = () => {
+      const r = sl.getBoundingClientRect(); cv.width = r.width; cv.height = r.height;
+      const c = cv.getContext('2d'); c.clearRect(0, 0, r.width, r.height);
+      if (!st) return;
+      const ox = st.x - r.left, oy = st.y - r.top, L = Math.min(r.width, r.height) * 0.45;
+      c.lineCap = 'round';
+      c.strokeStyle = '#ffffff55'; c.lineWidth = 6; c.beginPath(); c.moveTo(ox, oy); c.lineTo(ox - Math.cos(a) * pw * L, oy - Math.sin(a) * pw * L); c.stroke();
+      c.strokeStyle = myColor; c.lineWidth = 8; c.beginPath(); c.moveTo(ox, oy); const ex = ox + Math.cos(a) * (40 + pw * 90), ey = oy + Math.sin(a) * (40 + pw * 90); c.lineTo(ex, ey); c.stroke();
+      c.fillStyle = myColor; c.beginPath(); c.arc(ex, ey, 10, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#fff'; c.font = 'bold 22px system-ui'; c.textAlign = 'center'; c.fillText(Math.round(pw * 100) + '%', ox, oy - 24);
+    };
+    const maxLen = () => { const r = sl.getBoundingClientRect(); return Math.min(r.width, r.height) * 0.45; };
+    sl.addEventListener('pointerdown', e => { st = { x: e.clientX, y: e.clientY }; pw = 0; sl.setPointerCapture(e.pointerId); hintEl.style.display = 'none'; draw(); });
+    sl.addEventListener('pointermove', e => {
+      if (!st) return;
+      const dx = e.clientX - st.x, dy = e.clientY - st.y, len = Math.hypot(dx, dy);
+      if (len < 8) return;
+      a = Math.atan2(-dy, -dx); pw = Math.min(1, len / maxLen()); draw();
+      const now = performance.now(); if (now - lastSend > 50) { lastSend = now; send({ t: 'in', aim: [Math.round(a * 1000) / 1000, Math.round(pw * 1000) / 1000] }); }
+    });
+    const release = () => {
+      if (st && pw > 0.08) { send({ t: 'in', aim: [a, pw] }); send({ t: 'in', fire: 1 }); buzz(50); }
+      st = null; draw();
+    };
+    sl.addEventListener('pointerup', release); sl.addEventListener('pointercancel', () => { st = null; draw(); });
   },
 };
 

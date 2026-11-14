@@ -29,11 +29,14 @@
   .chip.off { opacity: .35; }
   .empty { font-size: 2.8vh; opacity: .6; }
   #gamesRow { grid-column: 1 / -1; }
-  #games { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1.6vw; }
-  .g { padding: 1.6vh; border-radius: 2.4vh; background: rgba(255,255,255,.08); text-align: center; }
+  #games { display: grid; grid-template-columns: repeat(8, 1fr); gap: 1vw; }
+  .g { padding: 1.4vh .6vw; border-radius: 2.4vh; background: rgba(255,255,255,.08); text-align: center; }
   .g .ic { font-size: 5vh; }
-  .g b { display: block; font-size: 3vh; margin-top: .6vh; }
-  .g small { display: block; font-size: 1.9vh; opacity: .7; margin-top: .6vh; }
+  .g b { display: block; font-size: 2.5vh; margin-top: .6vh; }
+  .g small { display: block; font-size: 1.6vh; opacity: .7; margin-top: .6vh; }
+  #musicHint { position: fixed; top: 2.5vh; left: 2.5vw; padding: 1.2vh 2.4vh; border-radius: 99px; background: #fcc419; color: #2b1d00; font-size: 2.4vh; font-weight: 800; z-index: 5; animation: pulse 1.6s infinite; }
+  #musicHint[hidden] { display: none; }
+  @keyframes pulse { 50% { transform: scale(1.06); } }
   #status { position: fixed; bottom: .8vh; left: 1vw; font-size: 1.8vh; opacity: .55; direction: rtl; }
 </style>
 </head>
@@ -58,6 +61,7 @@
     <div id="games"></div>
   </div>
 </div>
+<div id="musicHint" hidden>🔊 לחצו OK בשלט של הטלוויזיה כדי להפעיל מוזיקה</div>
 <div id="status"></div>
 
 <script>
@@ -148,6 +152,7 @@ function handleMsg(pid, m, sendFn) {
   if (!p || !p.connected) return;
   if (m.t === 'pick' && pid === hostId && state === 'lobby') startGame(m.game);
   else if (m.t === 'quit' && pid === hostId && state !== 'lobby') backToLobby();
+  else if (m.t === 'music' && pid === hostId) { Music.unlock(); Music.toggle(); updateMusicHint(); syncControllers(); }
   else if (m.t === 'in' && state === 'game' && current && current.cd <= 0) current.input(p, m);
 }
 
@@ -165,7 +170,7 @@ function ensureHost() {
 }
 
 function send(p, obj) { if (p && p.connected && p.send) { try { p.send(obj); } catch (e) {} } }
-function sendUI(p, ui) { send(p, Object.assign({ t: 'ui', host: p.id === hostId, inGame: state !== 'lobby' }, ui)); }
+function sendUI(p, ui) { send(p, Object.assign({ t: 'ui', host: p.id === hostId, inGame: state !== 'lobby', music: Music.enabled }, ui)); }
 function syncControllers() { for (const p of connected()) sendUI(p, uiFor(p)); }
 function uiFor(p) {
   if (state === 'lobby') {
@@ -220,6 +225,7 @@ function startGame(id) {
   current = g.create(ps);
   current.def = g; current.cd = 3.5;
   state = 'game'; lobbyEl.hidden = true;
+  Music.play(g.id);
   syncControllers();
 }
 
@@ -227,6 +233,7 @@ function finishGame(ranking) {
   state = 'results';
   resultData = ranking; resultTitle = current.def.name;
   resultsUntil = performance.now() + 8000;
+  Music.play('results');
   const top = ranking[0];
   if (top && top.p && !top.p.bot && players.has(top.p.id)) top.p.wins = (top.p.wins || 0) + 1;
   ranking.forEach((r, i) => send(r.p, { t: 'buzz', ms: i === 0 ? [90, 60, 90, 60, 90] : 60 }));
@@ -238,6 +245,7 @@ function backToLobby() {
   for (const [id, p] of players) if (!p.connected) players.delete(id);
   ensureHost();
   lobbyEl.hidden = false;
+  Music.play('lobby');
   renderLobby(); syncControllers();
 }
 
@@ -498,10 +506,127 @@ const QUESTIONS = [
 ];
 const QCOL = ['#e03131', '#1971c2', '#f08c00', '#2f9e44'];
 const QSHAPE = ['▲', '◆', '●', '■'];
+QUESTIONS.push(
+  ['כמה שחקנים יש לכל קבוצה על מגרש כדורסל?', '5', '6', '7', '4'],
+  ['מהו הנהר הארוך ביותר באפריקה?', 'הנילוס', 'הקונגו', 'הניז׳ר', 'הזמבזי'],
+  ['כמה קילוגרמים יש בטון?', '1,000', '100', '10,000', '500'],
+  ['מהו כוכב הלכת הקרוב ביותר לשמש?', 'כוכב חמה', 'נוגה', 'מאדים', 'כדור הארץ'],
+  ['באיזו עיר נמצא מגדל אייפל?', 'פריז', 'לונדון', 'רומא', 'ברלין'],
+  ['כמה עצמות יש בגוף של אדם בוגר?', '206', '150', '306', '412'],
+  ['מהו החומר הטבעי הקשה ביותר?', 'יהלום', 'ברזל', 'זהב', 'גרניט'],
+  ['מי פיתח את תורת היחסות?', 'אלברט איינשטיין', 'אייזק ניוטון', 'ניקולה טסלה', 'גלילאו גליליי'],
+  ['מהו הסימן הכימי של זהב?', 'Au', 'Ag', 'Go', 'Gd'],
+  ['כמה צלעות יש למתומן?', '8', '6', '10', '12'],
+  ['כמה דקות נמשך משחק כדורגל רגיל (בלי תוספות)?', '90', '80', '100', '120'],
+  ['איזה בעל חיים מכונה "מלך החיות"?', 'אריה', 'נמר', 'פיל', 'דוב'],
+  ['מהי השפה הרשמית בארגנטינה?', 'ספרדית', 'פורטוגזית', 'איטלקית', 'אנגלית'],
+  ['כמה יבשות יש בעולם בחלוקה המקובלת?', '7', '5', '6', '8'],
+  ['באיזו שנה נחת האדם הראשון על הירח?', '1969', '1959', '1975', '1965'],
+  ['מי היה ראש הממשלה הראשון של ישראל?', 'דוד בן-גוריון', 'גולדה מאיר', 'משה שרת', 'מנחם בגין'],
+  ['מהי העיר הגדולה ביותר בישראל לפי מספר תושבים?', 'ירושלים', 'תל אביב-יפו', 'חיפה', 'ראשון לציון'],
+  ['מהו אגם המים המתוקים הגדול בישראל?', 'הכנרת', 'ים המלח', 'אגם החולה', 'בריכת רם'],
+  ['כמה שבטים היו לעם ישראל לפי המסורת?', '12', '10', '7', '13'],
+  ['מהו המספר הראשוני הקטן ביותר?', '2', '1', '3', '0'],
+  ['מהו השורש הריבועי של 81?', '9', '8', '7', '6'],
+  ['איזה כוכב לכת מפורסם בטבעות שלו?', 'שבתאי', 'צדק', 'אורנוס', 'מאדים'],
+  ['מאיזה צמח מכינים שוקולד?', 'קקאו', 'קפה', 'וניל', 'טבק'],
+  ['כמה רגליים יש לחרק?', '6', '8', '4', '10'],
+  ['איזו ציפור לא יכולה לעוף?', 'יען', 'נשר', 'יונה', 'ינשוף'],
+  ['איזה יונק מסוגל לעוף באמת?', 'עטלף', 'סנאי מעופף', 'דולפין', 'פינגווין'],
+  ['באיזו מדינה נמצאת העיר טוקיו?', 'יפן', 'סין', 'קוריאה הדרומית', 'תאילנד'],
+  ['מי כתבה את ספרי "הארי פוטר"?', 'ג׳יי קיי רולינג', 'רואלד דאל', 'סטיבן קינג', 'ג׳יי אר אר טולקין'],
+  ['איזה פיגמנט נותן לצמחים את הצבע הירוק?', 'כלורופיל', 'המוגלובין', 'מלנין', 'קרוטן'],
+  ['מהו הגז הנפוץ ביותר באוויר של כדור הארץ?', 'חנקן', 'חמצן', 'פחמן דו-חמצני', 'ארגון'],
+  ['כמה שנים יש במאה?', '100', '10', '1,000', '50'],
+  ['לאיזה כלי נגינה יש בדרך כלל 88 קלידים?', 'פסנתר', 'אקורדיון', 'גיטרה', 'קסילופון'],
+  ['מי צייר את "ליל כוכבים"?', 'וינסנט ואן גוך', 'קלוד מונה', 'פבלו פיקאסו', 'סלבדור דאלי'],
+  ['איזה איבר מזרים את הדם בגוף?', 'הלב', 'הכבד', 'הכליות', 'הריאות'],
+  ['כמה חדרים יש בלב האדם?', '4', '2', '3', '6'],
+  ['באיזו יבשת נמצאת מצרים?', 'אפריקה', 'אסיה', 'אירופה', 'אמריקה'],
+  ['מהו המטבע של בריטניה?', 'לירה שטרלינג', 'אירו', 'דולר', 'פרנק'],
+  ['כמה זוגות כרומוזומים יש לאדם?', '23', '46', '22', '24'],
+  ['איך נקראת הגלקסיה שלנו?', 'שביל החלב', 'אנדרומדה', 'המשולש', 'ענן מגלן'],
+  ['באיזה ענף ספורט מפורסם ליונל מסי?', 'כדורגל', 'כדורסל', 'טניס', 'בייסבול'],
+  ['כמה זמן לוקח לכדור הארץ להקיף את השמש?', 'שנה', 'חודש', 'יום', '10 שנים'],
+  ['כמה שווה הספרה הרומית X?', '10', '5', '50', '100'],
+  ['איזו שפה היא שפת האם הנפוצה ביותר בעולם?', 'סינית מנדרינית', 'אנגלית', 'ספרדית', 'הינדי'],
+  ['איזה בעל חיים מייצר דבש?', 'דבורה', 'צרעה', 'נמלה', 'פרפר'],
+  ['כמה ספרות יש במספר מיליון (1,000,000)?', '7', '6', '8', '9'],
+  ['מהי הנוסחה הכימית של מים?', 'H₂O', 'CO₂', 'O₂', 'NaCl'],
+  ['מהו המדבר הגדול בישראל?', 'הנגב', 'מדבר יהודה', 'מדבר סיני', 'מדבר פארן'],
+  ['באיזו עיר נמצא הכותל המערבי?', 'ירושלים', 'חברון', 'צפת', 'טבריה'],
+  ['מי רשם פטנט על הטלפון ב-1876?', 'אלכסנדר גרהם בל', 'תומאס אדיסון', 'ניקולה טסלה', 'גוליילמו מרקוני'],
+  ['איזה ים נמצא בין ישראל לאירופה?', 'הים התיכון', 'הים האדום', 'הים השחור', 'הים הכספי'],
+  ['כמה מעלות יש במעגל שלם?', '360', '180', '90', '100'],
+  ['מהו סכום הזוויות במשולש?', '180°', '360°', '90°', '270°'],
+  ['מהי העיר הדרומית ביותר בישראל?', 'אילת', 'באר שבע', 'דימונה', 'מצפה רמון'],
+  ['איזה מכשיר מודד טמפרטורה?', 'מדחום', 'ברומטר', 'מצפן', 'מד-גשם'],
+  ['מהו בעל החיים הגבוה ביותר?', 'ג׳ירפה', 'פיל', 'גמל', 'יען'],
+  ['מאיזה פרי מכינים יין?', 'ענבים', 'תפוחים', 'תמרים', 'רימונים'],
+  ['כמה מטרים יש בקילומטר?', '1,000', '100', '10,000', '500'],
+  ['מי היה האדם הראשון בחלל?', 'יורי גגרין', 'ניל ארמסטרונג', 'באז אולדרין', 'אילן רמון'],
+  ['מי היה האסטרונאוט הישראלי הראשון?', 'אילן רמון', 'איתן סטיבה', 'אסף רמון', 'יורי גגרין'],
+  ['איזה איבר מסנן את הדם ומייצר שתן?', 'הכליות', 'הכבד', 'הלבלב', 'הטחול'],
+  ['באיזו יחידה מודדים זרם חשמלי?', 'אמפר', 'וולט', 'ואט', 'אוהם'],
+  ['איזו מדינה מפורסמת בצבעונים ובטחנות רוח?', 'הולנד', 'בלגיה', 'דנמרק', 'שוודיה'],
+  ['מהו הנהר הארוך ביותר בדרום אמריקה?', 'האמזונס', 'המיסיסיפי', 'הפרנה', 'האורינוקו'],
+  ['כמה צלעות יש למחומש?', '5', '6', '4', '8'],
+  ['באיזה חודש חל ראש השנה העברי?', 'תשרי', 'ניסן', 'אלול', 'טבת'],
+  ['כמה נרות מדליקים בלילה האחרון של חנוכה (כולל השמש)?', '9', '8', '7', '10'],
+  ['מהו האוקיינוס הקטן ביותר?', 'אוקיינוס הקרח הצפוני', 'האוקיינוס ההודי', 'האוקיינוס האטלנטי', 'האוקיינוס השקט'],
+  ['מאיזה חומר עשויים רוב העפרונות ("העופרת" שבהם)?', 'גרפיט', 'עופרת', 'פחם', 'ברזל'],
+  ['כמה צבעים יש בדגל ישראל?', '2', '3', '1', '4'],
+  ['מהו בעל החיים הגדול ביותר שחי אי פעם על כדור הארץ?', 'הלוויתן הכחול', 'הטירנוזאורוס', 'הממותה', 'הכריש הלווייתני'],
+  ['כמה אפסים יש במיליארד?', '9', '6', '12', '8'],
+);
+
+const CAPITALS = [
+  ['צרפת', 'פריז'], ['גרמניה', 'ברלין'], ['איטליה', 'רומא'], ['ספרד', 'מדריד'], ['פורטוגל', 'ליסבון'], ['יוון', 'אתונה'],
+  ['מצרים', 'קהיר'], ['יפן', 'טוקיו'], ['סין', 'בייג׳ינג'], ['הודו', 'ניו דלהי'], ['רוסיה', 'מוסקבה'], ['קנדה', 'אוטווה'],
+  ['ארצות הברית', 'וושינגטון'], ['מקסיקו', 'מקסיקו סיטי'], ['ברזיל', 'ברזיליה'], ['ארגנטינה', 'בואנוס איירס'], ['אוסטרליה', 'קנברה'],
+  ['טורקיה', 'אנקרה'], ['הולנד', 'אמסטרדם'], ['בלגיה', 'בריסל'], ['שוודיה', 'שטוקהולם'], ['נורווגיה', 'אוסלו'], ['דנמרק', 'קופנהגן'],
+  ['פינלנד', 'הלסינקי'], ['פולין', 'ורשה'], ['אוקראינה', 'קייב'], ['אוסטריה', 'וינה'], ['שווייץ', 'ברן'], ['הונגריה', 'בודפשט'],
+  ['צ׳כיה', 'פראג'], ['אירלנד', 'דבלין'], ['בריטניה', 'לונדון'], ['דרום קוריאה', 'סיאול'], ['תאילנד', 'בנגקוק'], ['ירדן', 'עמאן'],
+  ['קפריסין', 'ניקוסיה'], ['קניה', 'ניירובי'], ['ניגריה', 'אבוג׳ה'], ['מרוקו', 'רבאט'], ['ניו זילנד', 'ולינגטון'],
+];
+const ri = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+function genCapital() {
+  const [country, cap] = CAPITALS[ri(0, CAPITALS.length - 1)];
+  const wrong = shuffle(CAPITALS.filter(c => c[1] !== cap).map(c => c[1])).slice(0, 3);
+  return [`מהי עיר הבירה של ${country}?`, cap, ...wrong];
+}
+function genMath() {
+  let q, ans;
+  const kind = ri(0, 3);
+  if (kind === 0) { const a = ri(6, 15), b = ri(3, 12); q = `כמה זה ${a} × ${b}?`; ans = a * b; }
+  else if (kind === 1) { const a = ri(120, 899), b = ri(110, 899); q = `כמה זה ${a} + ${b}?`; ans = a + b; }
+  else if (kind === 2) { const a = ri(300, 999), b = ri(101, a - 50); q = `כמה זה ${a} − ${b}?`; ans = a - b; }
+  else { const pct = [10, 20, 25, 50, 75][ri(0, 4)], base = ri(2, 20) * 20; q = `כמה זה ${pct}% מתוך ${base}?`; ans = base * pct / 100; }
+  const wrong = new Set();
+  const deltas = kind === 0 ? [-ri(1, 3) * 1, ri(1, 3), 10, -10, ri(4, 9)] : [10, -10, 1, -1, 100, -100, 2, 20];
+  for (const d of shuffle(deltas)) { const v = ans + d; if (v > 0 && v !== ans) wrong.add(v); if (wrong.size === 3) break; }
+  while (wrong.size < 3) wrong.add(ans + ri(2, 30));
+  return [q, String(ans), ...[...wrong].map(String)];
+}
+function pickQuestions(n) {
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem('tvp-seenQ') || '[]'); } catch (e) {}
+  const seenSet = new Set(seen);
+  const staticN = n - 4;
+  let pool = QUESTIONS.filter(q => !seenSet.has(q[0]));
+  if (pool.length < staticN) { seen = []; pool = QUESTIONS.slice(); }
+  const chosen = shuffle(pool).slice(0, staticN);
+  try { localStorage.setItem('tvp-seenQ', JSON.stringify(seen.concat(chosen.map(q => q[0])))); } catch (e) {}
+  const caps = new Set(); const list = chosen.slice();
+  while (caps.size < 2) { const q = genCapital(); if (!caps.has(q[0])) { caps.add(q[0]); list.push(q); } }
+  list.push(genMath(), genMath());
+  return shuffle(list);
+}
+
 
 function createQuiz(ps) {
   const QT = 15;
-  const qs = shuffle(QUESTIONS.slice()).slice(0, 8).map(([q, c, ...w]) => { const opts = shuffle([c, ...w]); return { q, opts, ans: opts.indexOf(c) }; });
+  const qs = pickQuestions(10).map(([q, c, ...w]) => { const opts = shuffle([c, ...w]); return { q, opts, ans: opts.indexOf(c) }; });
   const scores = new Map(ps.map(p => [p, 0]));
   let i = 0, phase = 'q', t = 0, answers = new Map();
   const everyoneAnswered = () => [...scores.keys()].filter(p => p.connected).every(p => answers.has(p));
@@ -732,6 +857,808 @@ function createSumo(ps) {
   return g;
 }
 
+// ====================================================================== GAME 6: battleships
+function createShips(ps) {
+  const N = 10, SH = [5, 4, 3, 3, 2];
+  const sides = ps.slice(0, 2).map(p => ({ p }));
+  if (sides.length === 1) sides.push({ p: makeBot('המחשב') });
+  function board() {
+    const cells = new Int8Array(N * N).fill(-1), ships = [];
+    SH.forEach((len, id) => {
+      for (let tries = 0; tries < 1000; tries++) {
+        const h = Math.random() < 0.5;
+        const x = Math.floor(Math.random() * (h ? N - len + 1 : N)), y = Math.floor(Math.random() * (h ? N : N - len + 1));
+        const idx = []; for (let k = 0; k < len; k++) idx.push((y + (h ? 0 : k)) * N + x + (h ? k : 0));
+        if (idx.every(i => cells[i] < 0)) { idx.forEach(i => cells[i] = id); ships.push({ len, idx, hits: 0, sunk: false }); break; }
+      }
+    });
+    return { cells, ships };
+  }
+  sides.forEach(s => { Object.assign(s, board()); s.shots = new Uint8Array(N * N); s.ready = !!s.p.bot; });
+  let phase = 'setup', turn = Math.floor(Math.random() * 2), t = 0, last = null, msg = null, passTurn = false, cpuT = 0;
+  const other = i => 1 - i;
+  const sideOf = p => sides.findIndex(s => s.p === p);
+  const hitsOn = s => s.shots.reduce((a, v) => a + (v === 2), 0);
+  function view(s, showShips) {
+    let out = '';
+    for (let i = 0; i < N * N; i++) {
+      const sh = s.cells[i], shot = s.shots[i];
+      out += sh >= 0 && s.ships[sh].sunk ? 'k' : shot === 2 ? 'x' : shot === 1 ? 'o' : showShips && sh >= 0 ? 's' : '.';
+    }
+    return out;
+  }
+  function shoot(i, cell) {
+    const me = sides[i], op = sides[other(i)];
+    if (cell < 0 || cell >= N * N || op.shots[cell]) return;
+    const sh = op.cells[cell];
+    if (sh >= 0) {
+      op.shots[cell] = 2;
+      const ship = op.ships[sh]; ship.hits++;
+      if (ship.hits >= ship.len) { ship.sunk = true; msg = { text: `💥 הוטבעה ספינה באורך ${ship.len}!`, c: '#ff6b6b' }; send(me.p, { t: 'buzz', ms: [80, 50, 80, 50, 150] }); send(op.p, { t: 'buzz', ms: 400 }); }
+      else { msg = { text: '🔥 פגיעה! יורים שוב', c: '#ffa94d' }; send(me.p, { t: 'buzz', ms: 80 }); send(op.p, { t: 'buzz', ms: 150 }); }
+      Music.sfx('boom', 0.6);
+      passTurn = false;
+      if (op.ships.every(s => s.sunk)) {
+        const win = { p: me.p, label: `ניצחון! ${hitsOn(op)} פגיעות` }, lose = { p: op.p, label: `${hitsOn(me)} פגיעות` };
+        g.result = [win, lose].filter(r => !r.p.bot);
+        if (me.p.bot) g.result.unshift({ p: { name: 'המחשב', color: '#adb5bd', bot: true }, label: 'ניצחון' });
+      }
+    } else {
+      op.shots[cell] = 1; msg = { text: '💧 החטאה', c: '#74c0fc' }; passTurn = true;
+      Music.sfx('splash');
+    }
+    last = { side: other(i), cell }; phase = 'anim'; t = 0;
+    syncControllers();
+  }
+  function cpuPick() {
+    const op = sides[other(turn)];
+    const open = i => i >= 0 && i < N * N && !op.shots[i];
+    const wounded = [];
+    for (let i = 0; i < N * N; i++) if (op.shots[i] === 2 && !op.ships[op.cells[i]].sunk) wounded.push(i);
+    const cand = [];
+    for (const i of wounded) {
+      const x = i % N, y = (i / N) | 0;
+      if (x > 0 && open(i - 1)) cand.push(i - 1);
+      if (x < N - 1 && open(i + 1)) cand.push(i + 1);
+      if (open(i - N)) cand.push(i - N);
+      if (open(i + N)) cand.push(i + N);
+    }
+    if (cand.length) return cand[Math.floor(Math.random() * cand.length)];
+    const free = []; for (let i = 0; i < N * N; i++) if (open(i) && ((i % N) + ((i / N) | 0)) % 2 === 0) free.push(i);
+    if (!free.length) for (let i = 0; i < N * N; i++) if (open(i)) free.push(i);
+    return free[Math.floor(Math.random() * free.length)];
+  }
+  const g = {
+    uiFor(p) {
+      const i = sideOf(p); if (i < 0) return null;
+      const me = sides[i], op = sides[other(i)];
+      if (phase === 'setup') return me.ready ? { ui: 'wait', text: 'מוכן! ⏳ מחכים ליריב…' }
+        : { ui: 'grid', size: N, title: 'זה הצי שלך 🚢 אפשר לערבב עד שזה נראה טוב', cells: view(me, true), mode: 'view', buttons: [{ id: 'shuffle', label: '🔀 ערבוב' }, { id: 'ready', label: '✅ מוכן!' }] };
+      if (phase === 'play' && turn === i) return { ui: 'grid', size: N, title: `🎯 תורך! בחרו משבצת לירות על ${op.p.name}`, cells: view(op, false), mode: 'fire' };
+      if (turn === i) return { ui: 'grid', size: N, title: msg ? msg.text : '…', cells: view(op, false), mode: 'view' };
+      return { ui: 'grid', size: N, title: `⏳ ${op.p.name} יורה עליך…`, cells: view(me, true), mode: 'view' };
+    },
+    input(p, m) {
+      const i = sideOf(p); if (i < 0) return;
+      const me = sides[i];
+      if (phase === 'setup') {
+        if (m.btn === 'shuffle' && !me.ready) { Object.assign(me, board()); sendUI(p, g.uiFor(p)); }
+        else if (m.btn === 'ready' && !me.ready) { me.ready = true; sendUI(p, g.uiFor(p)); if (sides.every(s => s.ready)) { phase = 'play'; t = 0; syncControllers(); } }
+        return;
+      }
+      if (phase === 'play' && turn === i && typeof m.cell === 'number') shoot(i, m.cell | 0);
+    },
+    update(dt) {
+      t += dt;
+      if (phase === 'setup' && sides.every(s => s.ready)) { phase = 'play'; syncControllers(); }
+      if (phase === 'anim' && t > 1.4 && !g.result) { if (passTurn) turn = other(turn); phase = 'play'; t = 0; msg = null; syncControllers(); }
+      if (phase === 'play' && sides[turn].p.bot) { cpuT += dt; if (cpuT > 1.1) { cpuT = 0; shoot(turn, cpuPick()); } }
+    },
+    draw() {
+      const gr = ctx.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#04263f'); gr.addColorStop(1, '#0a4a6e');
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+      const CSZ = 64, BY = 250, BX = [1080, 200];   // side 0 on the right (RTL), side 1 on the left
+      sides.forEach((s, si) => {
+        const bx = BX[si], attacked = phase !== 'setup' && turn === other(si);
+        const left = s.ships.filter(x => !x.sunk).length;
+        T(`${s.p.name}`, bx + CSZ * 5, 120, 52, s.p.color);
+        T(`🚢 ${left} ספינות נשארו`, bx + CSZ * 5, 180, 30, 'rgba(255,255,255,.8)');
+        if (attacked) { ctx.shadowColor = '#ffd43b'; ctx.shadowBlur = 40; }
+        rrect(bx - 10, BY - 10, CSZ * N + 20, CSZ * N + 20, 18); ctx.fillStyle = attacked ? '#ffd43b' : 'rgba(255,255,255,.15)'; ctx.fill();
+        ctx.shadowBlur = 0;
+        for (let i = 0; i < N * N; i++) {
+          const x = bx + (i % N) * CSZ, y = BY + ((i / N) | 0) * CSZ;
+          const sh = s.cells[i], shot = s.shots[i], sunk = sh >= 0 && s.ships[sh].sunk;
+          ctx.fillStyle = sunk ? '#5c1a1a' : ((i % N + ((i / N) | 0)) % 2 ? '#1d5a8c' : '#1a5283');
+          ctx.fillRect(x + 1, y + 1, CSZ - 2, CSZ - 2);
+          if (phase === 'setup' && false) {}
+          if (shot === 1) { ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.beginPath(); ctx.arc(x + CSZ / 2, y + CSZ / 2, 9, 0, Math.PI * 2); ctx.fill(); }
+          if (shot === 2) { T('✕', x + CSZ / 2, y + CSZ / 2 + 2, 46, sunk ? '#ffa8a8' : '#ff4d4d'); }
+        }
+        if (phase === 'setup') {
+          ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(bx, BY, CSZ * N, CSZ * N);
+          T(s.ready ? '✅ מוכן' : '⏳ מסדר/ת צי…', bx + CSZ * 5, BY + CSZ * 5, 54);
+        }
+        if (last && last.side === si && phase === 'anim') {
+          const x = bx + (last.cell % N) * CSZ + CSZ / 2, y = BY + ((last.cell / N) | 0) * CSZ + CSZ / 2;
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.globalAlpha = 1 - t / 1.4;
+          ctx.beginPath(); ctx.arc(x, y, 20 + t * 60, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+        }
+        if (attacked && phase === 'play') T('🎯 תחת אש', bx + CSZ * 5, BY + CSZ * N + 50, 34, '#ffd43b');
+      });
+      if (phase !== 'setup') T(`התור של ${sides[turn].p.name}`, W / 2, 50, 40, sides[turn].p.color);
+      else T('מסדרים את הצי בטלפונים…', W / 2, 50, 40);
+      if (msg && phase === 'anim') {
+        rrect(W / 2 - 420, H / 2 - 70, 840, 140, 30); ctx.fillStyle = 'rgba(0,0,0,.75)'; ctx.fill();
+        T(msg.text, W / 2, H / 2, 64, msg.c);
+      }
+    },
+  };
+  return g;
+}
+
+// ====================================================================== GAME 7: checkers
+function createCheckers(ps) {
+  const N = 8;
+  const sides = ps.slice(0, 2).map(p => ({ p }));
+  if (sides.length === 1) sides.push({ p: makeBot('המחשב') });
+  const COL = ['#e03131', '#212529'];   // side 0 red (bottom, moves up), side 1 black (top, moves down)
+  const B = new Array(N * N).fill(null);
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if ((r + c) % 2 === 1) {
+    if (r < 3) B[r * N + c] = { s: 1, k: false };
+    else if (r > 4) B[r * N + c] = { s: 0, k: false };
+  }
+  let turn = 0, sel = null, chain = null, last = null, moves = 0, cpuT = 0, msg = null, msgT = 0;
+  const sideOf = p => sides.findIndex(s => s.p === p);
+  const count = s => B.filter(x => x && x.s === s).length;
+
+  function pieceMoves(i, capsOnly) {
+    const pc = B[i]; if (!pc) return [];
+    const r = (i / N) | 0, c = i % N, out = [];
+    const dirs = pc.k ? [-1, 1] : [pc.s === 0 ? -1 : 1];
+    for (const dr of dirs) for (const dc of [-1, 1]) {
+      const r1 = r + dr, c1 = c + dc, r2 = r + 2 * dr, c2 = c + 2 * dc;
+      if (r1 < 0 || r1 >= N || c1 < 0 || c1 >= N) continue;
+      const mid = B[r1 * N + c1];
+      if (!mid) { if (!capsOnly) out.push({ from: i, to: r1 * N + c1, cap: -1 }); }
+      else if (mid.s !== pc.s && r2 >= 0 && r2 < N && c2 >= 0 && c2 < N && !B[r2 * N + c2]) out.push({ from: i, to: r2 * N + c2, cap: r1 * N + c1 });
+    }
+    return out;
+  }
+  function legal(side) {
+    if (chain != null) return pieceMoves(chain, true);
+    let all = [];
+    for (let i = 0; i < N * N; i++) if (B[i] && B[i].s === side) all = all.concat(pieceMoves(i, false));
+    const caps = all.filter(m => m.cap >= 0);
+    return caps.length ? caps : all;   // capturing is mandatory
+  }
+  function doMove(mv) {
+    const pc = B[mv.from]; B[mv.to] = pc; B[mv.from] = null;
+    last = mv; moves++;
+    let promoted = false;
+    const row = (mv.to / N) | 0;
+    if (!pc.k && ((pc.s === 0 && row === 0) || (pc.s === 1 && row === N - 1))) { pc.k = true; promoted = true; msg = '👑 מלך!'; msgT = 1.2; }
+    if (mv.cap >= 0) {
+      B[mv.cap] = null; Music.sfx('hit');
+      send(sides[1 - pc.s].p, { t: 'buzz', ms: 150 });
+      if (!promoted && pieceMoves(mv.to, true).length) { chain = mv.to; sel = mv.to; syncControllers(); return; }
+    } else Music.sfx('click');
+    chain = null; sel = null; turn = 1 - turn;
+    const opp = turn;
+    if (!count(opp) || !legal(opp).length || moves >= 200) {
+      let w;
+      if (moves >= 200 && count(opp) && legal(opp).length) w = count(0) === count(1) ? -1 : count(0) > count(1) ? 0 : 1;
+      else w = 1 - opp;
+      const rs = [0, 1].map(s => ({ s, p: sides[s].p, label: `${count(s)} כלים נשארו` }));
+      if (w >= 0) { rs.sort((a, b) => (a.s === w ? -1 : 1)); rs[0].label = 'ניצחון! · ' + rs[0].label; }
+      g.result = rs.filter(r => !r.p.bot).map(r => ({ p: r.p, label: r.label }));
+      if (w >= 0 && sides[w].p.bot) g.result.unshift({ p: { name: 'המחשב', color: '#adb5bd', bot: true }, label: 'ניצחון' });
+      return;
+    }
+    syncControllers();
+  }
+  function cells() { let s = ''; for (let i = 0; i < N * N; i++) { const r = (i / N) | 0, c = i % N, pc = B[i]; s += pc ? (pc.s === 0 ? (pc.k ? 'R' : 'r') : (pc.k ? 'B' : 'b')) : ((r + c) % 2 ? 'd' : 'l'); } return s; }
+  function highlights(side) {
+    const L = legal(side);
+    if (sel != null) return { hl: L.filter(m => m.from === sel).map(m => m.to), sel };
+    return { hl: [...new Set(L.map(m => m.from))], sel: -1 };
+  }
+  function cpuMove() {
+    const L = legal(turn);
+    const safe = mv => {   // would the moved piece be capturable right away?
+      const save = [B[mv.from], B[mv.to], mv.cap >= 0 ? B[mv.cap] : null];
+      B[mv.to] = B[mv.from]; B[mv.from] = null; if (mv.cap >= 0) B[mv.cap] = null;
+      let danger = false;
+      for (let i = 0; i < N * N && !danger; i++) if (B[i] && B[i].s !== turn) danger = pieceMoves(i, true).some(m => m.cap === mv.to);
+      B[mv.from] = save[0]; B[mv.to] = save[1]; if (mv.cap >= 0) B[mv.cap] = save[2];
+      return !danger;
+    };
+    const score = mv => (mv.cap >= 0 ? 5 : 0) + (safe(mv) ? 3 : 0) + (!B[mv.from].k && (((mv.to / N) | 0) === (turn === 0 ? 0 : N - 1)) ? 4 : 0) + Math.random() * 2;
+    return L.sort((a, b) => score(b) - score(a))[0];
+  }
+  const g = {
+    uiFor(p) {
+      const i = sideOf(p); if (i < 0) return null;
+      const flip = i === 1;
+      if (turn === i) {
+        const h = highlights(i);
+        return { ui: 'grid', size: N, flip, cells: cells(), mode: 'tap', hl: h.hl, sel: h.sel, title: chain != null ? '🔥 עוד אכילה! המשיכו לקפוץ' : sel != null ? 'בחרו לאן לזוז (או כלי אחר)' : `תורך! אתם ה${i === 0 ? 'אדומים 🔴' : 'שחורים ⚫'} – בחרו כלי` };
+      }
+      return { ui: 'grid', size: N, flip, cells: cells(), mode: 'view', title: `⏳ ${sides[turn].p.name} חושב/ת…` };
+    },
+    input(p, m) {
+      const i = sideOf(p); if (i !== turn || typeof m.cell !== 'number') return;
+      const cell = m.cell | 0, L = legal(i);
+      if (sel != null) {
+        const mv = L.find(x => x.from === sel && x.to === cell);
+        if (mv) { doMove(mv); return; }
+      }
+      if (chain == null && B[cell] && B[cell].s === i && L.some(x => x.from === cell)) sel = cell;
+      else if (chain == null) sel = null;
+      sendUI(p, g.uiFor(p));
+    },
+    update(dt) {
+      if (msgT > 0) msgT -= dt;
+      if (sides[turn].p.bot) { cpuT += dt; if (cpuT > 0.9) { cpuT = 0; const mv = cpuMove(); if (mv) doMove(mv); } }
+    },
+    draw() {
+      bg('#2b1a10', '#4a2c18');
+      const CSZ = 112, BX = (W - CSZ * N) / 2, BY = (H - CSZ * N) / 2;
+      rrect(BX - 22, BY - 22, CSZ * N + 44, CSZ * N + 44, 20); ctx.fillStyle = '#6b3f1d'; ctx.fill();
+      const h = highlights(turn);
+      for (let i = 0; i < N * N; i++) {
+        const r = (i / N) | 0, c = i % N, x = BX + c * CSZ, y = BY + r * CSZ;
+        ctx.fillStyle = (r + c) % 2 ? '#7a4a24' : '#e8cfa0'; ctx.fillRect(x, y, CSZ, CSZ);
+        if (last && (i === last.from || i === last.to)) { ctx.fillStyle = 'rgba(255,212,59,.28)'; ctx.fillRect(x, y, CSZ, CSZ); }
+        if (h.hl.includes(i) && h.sel >= 0) { ctx.fillStyle = 'rgba(81,207,102,.55)'; ctx.beginPath(); ctx.arc(x + CSZ / 2, y + CSZ / 2, 18, 0, Math.PI * 2); ctx.fill(); }
+        const pc = B[i]; if (!pc) continue;
+        const cx = x + CSZ / 2, cy = y + CSZ / 2;
+        ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.beginPath(); ctx.arc(cx + 3, cy + 6, 42, 0, Math.PI * 2); ctx.fill();
+        const gg = ctx.createRadialGradient(cx - 12, cy - 14, 6, cx, cy, 44);
+        gg.addColorStop(0, pc.s === 0 ? '#ff8787' : '#868e96'); gg.addColorStop(1, COL[pc.s]);
+        ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(cx, cy, 42, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, 30, 0, Math.PI * 2); ctx.stroke();
+        if (pc.k) T('👑', cx, cy + 2, 40);
+        if (i === h.sel || (h.sel < 0 && h.hl.includes(i) && !sides[turn].p.bot)) { ctx.strokeStyle = '#51cf66'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(cx, cy, 47, 0, Math.PI * 2); ctx.stroke(); }
+      }
+      // side panels: red player on the right, black on the left
+      [[0, W - 230], [1, 230]].forEach(([s, x]) => {
+        const on = turn === s;
+        rrect(x - 190, H / 2 - 200, 380, 400, 30); ctx.fillStyle = on ? 'rgba(255,212,59,.22)' : 'rgba(255,255,255,.07)'; ctx.fill();
+        ctx.fillStyle = COL[s]; ctx.beginPath(); ctx.arc(x, H / 2 - 110, 46, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff6'; ctx.lineWidth = 4; ctx.stroke();
+        T(sides[s].p.name, x, H / 2, 44, '#fff');
+        T(`${count(s)} כלים`, x, H / 2 + 70, 34, 'rgba(255,255,255,.8)');
+        if (on) T(chain != null ? '🔥 אכילה רצופה!' : '◀ תורו', x, H / 2 + 140, 32, '#ffd43b');
+      });
+      if (msgT > 0) T(msg, W / 2, H / 2, 120, '#ffd43b');
+    },
+  };
+  return g;
+}
+
+// ====================================================================== GAME 8: fort wars
+function createFort(ps) {
+  const CS = 34, GW = 56, GH = 32, GROUND = 28, G = 900, TW = 14;
+  const MAT = {
+    G: { name: 'זכוכית', hp: 14, mult: 1.6, c: '#a5d8ff' },
+    W: { name: 'עץ', hp: 45, mult: 1, c: '#b5793a' },
+    B: { name: 'לבנים', hp: 75, mult: 0.85, c: '#c0502b' },
+    S: { name: 'אבן', hp: 120, mult: 0.65, c: '#8d939b' },
+    T: { name: 'פלדה', hp: 240, mult: 0.38, c: '#4f5b6b' },
+  };
+  const TPL = [
+    '.....GGGG.....',
+    '....TSSSST....',
+    '...BBBBBBBB...',
+    '...W......W...',
+    '...G......G...',
+    '...W......W...',
+    '..SSSSSSSSSS..',
+    '..B........B..',
+    '..G........G..',
+    '..B........B..',
+    'WWWWWWWWWWWWWW',
+    'B............B',
+    'G............G',
+    'B............B',
+    'TTTTTTTTTTTTTT',
+  ];
+  const SPOTS = [[2, 13], [5, 13], [8, 13], [11, 13], [4, 9], [7, 9], [10, 9], [5, 5], [8, 5], [3, 1]];
+  const WEAPONS = [
+    { id: 'bz', name: 'בזוקה', icon: '🚀', speed: 1500, grav: 0.25, R: 4.2, dmg: 130, sdmg: 70, ammo: 1 },
+    { id: 'gr', name: 'רימון', icon: '💣', speed: 1050, grav: 1, bounce: true, fuse: 2.6, R: 3.1, dmg: 85, sdmg: 55, ammo: 2 },
+    { id: 'mo', name: 'מרגמה', icon: '🎯', speed: 1300, grav: 1.1, R: 3.7, dmg: 105, sdmg: 60, ammo: 2 },
+    { id: 'sn', name: 'צלף', icon: '🔫', hitscan: true, dmg: 35, sdmg: 65, ammo: 99 },
+    { id: 'cl', name: 'מצרר', icon: '🎆', speed: 1150, grav: 1, cluster: 5, R: 2.4, dmg: 60, sdmg: 35, ammo: 1 },
+  ];
+  const BOMBLET = { id: 'bl', grav: 1, R: 2.2, dmg: 60, sdmg: 32 };
+  const XL = 3, XR = GW - 3 - TW, TOP = GROUND - TPL.length;
+  const cells = new Array(GW * GH).fill(null);
+  const at = (x, y) => (x < 0 || x >= GW || y < 0 || y >= GH) ? null : cells[y * GW + x];
+  const solidPx = (px, py) => py >= GROUND * CS || !!at(Math.floor(px / CS), Math.floor(py / CS));
+  TPL.forEach((row, r) => {
+    for (let c = 0; c < TW; c++) {
+      const ch = row[c]; if (ch === '.') continue;
+      for (const [x0, mir] of [[XL, false], [XR, true]]) {
+        const x = mir ? x0 + TW - 1 - c : x0 + c;
+        cells[(TOP + r) * GW + x] = { m: ch, hp: MAT[ch].hp, max: MAT[ch].hp, falling: false, fall: 0 };
+      }
+    }
+  });
+
+  const teams = {
+    L: { side: 'L', color: '#ff6b6b', players: [], soldiers: [], idx: -1, turns: 0 },
+    R: { side: 'R', color: '#4dabf7', players: [], soldiers: [], idx: -1, turns: 0 },
+  };
+  ps.forEach((p, i) => teams[i % 2 ? 'R' : 'L'].players.push(p));
+  const cpu = makeBot('המחשב');
+  for (const side of ['L', 'R']) SPOTS.forEach(([c, r], n) => {
+    const X = side === 'L' ? XL + c : XR + TW - 1 - c;
+    teams[side].soldiers.push({ side, n: n + 1, x: (X + 0.5) * CS, y: (TOP + r + 1) * CS, vx: 0, vy: 0, hp: 100, alive: true, ammo: WEAPONS.map(w => w.ammo) });
+  });
+  const soldiers = () => teams.L.soldiers.concat(teams.R.soldiers);
+  const alive = side => teams[side].soldiers.filter(s => s.alive);
+  const teamName = side => teams[side].players.length ? teams[side].players.map(p => p.name).join(' + ') : cpu.name;
+
+  let turnSide = Math.random() < 0.5 ? 'L' : 'R', active = null, ctrl = null, aim = { a: 0, p: 0.6 }, wsel = 0;
+  let phase = 'aim', timer = 30, wind = 0, settleT = 0, totalTurns = 0, botT = 0, botPlan = null, banner = null, shake = 0, fallAcc = 0, anyFalling = false;
+  const projs = [], parts = [], tracers = [];
+
+  function recomputeSupport() {
+    const sup = new Uint8Array(GW * GH), q = [];
+    for (let x = 0; x < GW; x++) { const i = (GROUND - 1) * GW + x; if (cells[i] && !cells[i].falling) { sup[i] = 1; q.push(i); } }
+    for (let x = 0; x < GW; x++) { const i = (GROUND - 1) * GW + x; if (cells[i] && cells[i].falling) { sup[i] = 1; q.push(i); } }
+    while (q.length) {
+      const i = q.pop(), x = i % GW, y = (i / GW) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy; if (nx < 0 || nx >= GW || ny < 0 || ny >= GROUND) continue;
+        const j = ny * GW + nx; if (!sup[j] && cells[j]) { sup[j] = 1; q.push(j); }
+      }
+    }
+    anyFalling = false;
+    for (let i = 0; i < cells.length; i++) { const c = cells[i]; if (c) { c.falling = !sup[i]; if (c.falling) anyFalling = true; } }
+  }
+  function breakCell(x, y) {
+    const c = at(x, y); if (!c) return;
+    for (let k = 0; k < 5; k++) parts.push({ type: 'debris', x: (x + 0.5) * CS, y: (y + 0.5) * CS, vx: rand(-260, 260), vy: rand(-420, -60), s: rand(5, 11), c: MAT[c.m].c, t: 0, life: rand(0.8, 1.5), rot: rand(0, 6) });
+    cells[y * GW + x] = null;
+  }
+  function fallTick() {
+    let moved = false, landed = false;
+    for (let y = GROUND - 1; y >= 0; y--) for (let x = 0; x < GW; x++) {
+      const i = y * GW + x, c = cells[i]; if (!c || !c.falling) continue;
+      const below = y + 1 >= GROUND ? 'ground' : cells[i + GW];
+      if (!below) {
+        cells[i + GW] = c; cells[i] = null; c.fall++; moved = true;
+        for (const s of soldiers()) if (s.alive && Math.abs(s.x - (x + 0.5) * CS) < CS * 0.7 && s.y > (y + 1) * CS && s.y - 34 < (y + 2) * CS) hurt(s, 12);
+      } else if (below === 'ground' || !below.falling || below.landed) {
+        c.falling = false; c.landed = true; landed = true;
+        if (c.fall > 1) { c.hp -= c.fall * 12 * MAT[c.m].mult; if (c.hp <= 0) breakCell(x, y); }
+        c.fall = 0;
+      }
+    }
+    for (const c of cells) if (c) c.landed = false;
+    if (landed) recomputeSupport(); else anyFalling = moved;
+  }
+  function hurt(s, d) {
+    if (!s.alive) return;
+    s.hp -= d; s.flash = 0.3;
+    if (s.hp <= 0) {
+      s.hp = 0; s.alive = false;
+      parts.push({ type: 'ghost', x: s.x, y: s.y - 20, t: 0, life: 1.4 });
+      const team = teams[s.side]; team.players.forEach(p => send(p, { t: 'buzz', ms: 200 }));
+    }
+  }
+  function explode(x, y, w) {
+    const R = w.R, cx = x / CS, cy = y / CS;
+    for (let yy = Math.floor(cy - R); yy <= Math.ceil(cy + R); yy++) for (let xx = Math.floor(cx - R); xx <= Math.ceil(cx + R); xx++) {
+      const c = at(xx, yy); if (!c) continue;
+      const d = Math.hypot(xx + 0.5 - cx, yy + 0.5 - cy); if (d > R) continue;
+      c.hp -= w.dmg * (1 - (d / R) * 0.7) * MAT[c.m].mult * rand(0.8, 1.2);
+      if (c.hp <= 0) breakCell(xx, yy);
+    }
+    const RP = R * CS * 1.15;
+    for (const s of soldiers()) {
+      if (!s.alive) continue;
+      const sy = s.y - 17, d = Math.hypot(s.x - x, sy - y); if (d > RP) continue;
+      const f = 1 - d / RP;
+      hurt(s, w.sdmg * (0.35 + 0.65 * f));
+      const k = 650 * f;
+      s.vx += (s.x - x) / (d || 1) * k; s.vy += (sy - y) / (d || 1) * k - 260 * f;
+    }
+    parts.push({ type: 'flash', x, y, r: RP, t: 0, life: 0.35 });
+    for (let i = 0; i < 12; i++) parts.push({ type: 'smoke', x: x + rand(-20, 20), y: y + rand(-20, 20), vx: rand(-60, 60), vy: rand(-120, -20), r: rand(14, 30), t: 0, life: rand(0.8, 1.6) });
+    shake = Math.min(1, shake + R * 0.12);
+    Music.sfx('boom', Math.min(1, R / 4));
+    recomputeSupport();
+  }
+  function sniper(sx, sy, dx, dy, w) {
+    let x = sx, y = sy;
+    for (let d = 0; d < 2600; d += 5) {
+      x = sx + dx * d; y = sy + dy * d;
+      if (x < 0 || x > W || y < 0 || y > H) break;
+      const hit = soldiers().find(s => s.alive && s !== active && Math.abs(x - s.x) < 10 && y > s.y - 36 && y < s.y);
+      if (hit) { hurt(hit, w.sdmg); hit.vx += dx * 150; parts.push({ type: 'flash', x, y, r: 18, t: 0, life: 0.2 }); break; }
+      if (solidPx(x, y)) {
+        const c = at(Math.floor(x / CS), Math.floor(y / CS));
+        if (c) { c.hp -= w.dmg * MAT[c.m].mult; if (c.hp <= 0) { breakCell(Math.floor(x / CS), Math.floor(y / CS)); recomputeSupport(); } }
+        parts.push({ type: 'flash', x, y, r: 14, t: 0, life: 0.2 });
+        break;
+      }
+    }
+    tracers.push({ x1: sx, y1: sy, x2: x, y2: y, t: 0 });
+    Music.sfx('shot');
+  }
+  function fire() {
+    const w = WEAPONS[wsel]; if (!w || !active || active.ammo[wsel] <= 0) return;
+    if (w.ammo < 99) active.ammo[wsel]--;
+    const sx = active.x, sy = active.y - 26, dx = Math.cos(aim.a), dy = Math.sin(aim.a);
+    if (w.hitscan) sniper(sx, sy, dx, dy, w);
+    else {
+      const sp = w.speed * (0.25 + 0.75 * aim.p);
+      projs.push({ w, x: sx + dx * 20, y: sy + dy * 20, vx: dx * sp, vy: dy * sp, t: 0, owner: active });
+      Music.sfx(w.id === 'bz' ? 'whoosh' : 'thump');
+    }
+    phase = 'fly'; settleT = 0;
+    syncControllers();
+  }
+  function stepProj(pr, dt) {
+    const w = pr.w; pr.t += dt;
+    pr.vy += G * w.grav * dt; pr.vx += wind * dt * (w.id === 'bz' ? 0.3 : 1);
+    const nx = pr.x + pr.vx * dt, ny = pr.y + pr.vy * dt;
+    if (nx < -200 || nx > W + 200 || ny > H + 100) { pr.dead = true; return; }
+    for (const s of soldiers()) if (s.alive && !(s === pr.owner && pr.t < 0.3) && Math.abs(nx - s.x) < 13 && ny > s.y - 36 && ny < s.y + 2) {
+      if (w.bounce) { pr.vx *= -0.3; pr.vy *= -0.3; return; }
+      explode(nx, ny, w); pr.dead = true; return;
+    }
+    if (solidPx(nx, ny)) {
+      if (w.bounce) {
+        const hx = solidPx(nx, pr.y), hy = solidPx(pr.x, ny);
+        if (hx || !hy) pr.vx *= -0.45;
+        if (hy || !hx) pr.vy *= -0.45;
+        pr.vx *= 0.85;
+      } else { explode(nx, ny, w); pr.dead = true; return; }
+    } else { pr.x = nx; pr.y = ny; }
+    if (w.fuse && pr.t >= w.fuse) { explode(pr.x, pr.y, w); pr.dead = true; return; }
+    if (w.cluster && pr.vy > 0 && pr.t > 0.25) {
+      pr.dead = true;
+      for (let k = 0; k < w.cluster; k++) projs.push({ w: BOMBLET, x: pr.x, y: pr.y, vx: pr.vx * 0.5 + rand(-240, 240), vy: rand(-180, 40), t: 1, owner: null });
+      parts.push({ type: 'flash', x: pr.x, y: pr.y, r: 30, t: 0, life: 0.25 });
+    }
+  }
+  function simulate(a, p, w, maxT, pts) {
+    const sx = active.x, sy = active.y - 26, dx = Math.cos(a), dy = Math.sin(a), sp = w.speed * (0.25 + 0.75 * p);
+    let x = sx + dx * 20, y = sy + dy * 20, vx = dx * sp, vy = dy * sp, t = 0, k = 0;
+    const st = 1 / 120;
+    while (t < maxT) {
+      vy += G * w.grav * st; vx += wind * st * (w.id === 'bz' ? 0.3 : 1); x += vx * st; y += vy * st; t += st; k++;
+      if (pts && k % 5 === 0) pts.push([x, y]);
+      if (x < -100 || x > W + 100 || y > H) return { x, y, out: true };
+      if (solidPx(x, y)) return { x, y };
+      for (const s of soldiers()) if (s.alive && s !== active && Math.abs(x - s.x) < 13 && y > s.y - 36 && y < s.y + 2) return { x, y };
+    }
+    return { x, y };
+  }
+  function planBot() {
+    const enemies = alive(turnSide === 'L' ? 'R' : 'L');
+    const target = enemies[Math.floor(Math.random() * enemies.length)];
+    const opts = [0, 1, 2, 4].filter(i => active.ammo[i] > 0);
+    wsel = opts.length && Math.random() < 0.8 ? opts[Math.floor(Math.random() * opts.length)] : 3;
+    const w = WEAPONS[wsel], tx = target.x, ty = target.y - 17;
+    if (w.hitscan) return { a: Math.atan2(ty - (active.y - 26), tx - active.x) + rand(-0.02, 0.02), p: 1 };
+    let best = null;
+    for (let k = 0; k < 160; k++) {
+      const a = turnSide === 'L' ? rand(-1.45, 0.1) : rand(-Math.PI - 0.1, -Math.PI + 1.45), p = rand(0.3, 1);
+      const r = simulate(a, p, w, 4), d = Math.hypot(r.x - tx, r.y - ty);
+      if (!best || d < best.d) best = { a, p, d };
+    }
+    return { a: best.a + rand(-0.03, 0.03), p: clamp(best.p + rand(-0.04, 0.04), 0, 1) };
+  }
+  function nextTurn(first) {
+    if (!first) turnSide = turnSide === 'L' ? 'R' : 'L';
+    const T = teams[turnSide];
+    let i = T.idx; do { i = (i + 1) % T.soldiers.length; } while (!T.soldiers[i].alive); T.idx = i;
+    active = T.soldiers[i];
+    ctrl = T.players.length ? T.players[T.turns % T.players.length] : cpu;
+    T.turns++; totalTurns++;
+    if (!(active.ammo[wsel] > 0)) wsel = active.ammo.findIndex(a => a > 0);
+    aim = { a: turnSide === 'L' ? -0.75 : -Math.PI + 0.75, p: 0.6 };
+    wind = Math.round(rand(-140, 140)); timer = 30; phase = 'aim'; botT = 0; botPlan = null;
+    banner = { text: `${teamName(turnSide)} · חייל ${active.n}`, t: 1.8, color: T.color };
+    syncControllers();
+  }
+  function finish() {
+    const aL = alive('L').length, aR = alive('R').length;
+    let w = aL === aR ? (alive('L').reduce((a, s) => a + s.hp, 0) >= alive('R').reduce((a, s) => a + s.hp, 0) ? 'L' : 'R') : aL > aR ? 'L' : 'R';
+    const lose = w === 'L' ? 'R' : 'L';
+    const res = [];
+    if (!teams[w].players.length) res.push({ p: { name: 'המחשב', color: '#adb5bd', bot: true }, label: `ניצחון · ${alive(w).length} חיילים שרדו` });
+    teams[w].players.forEach(p => res.push({ p, label: `ניצחון! · ${alive(w).length} חיילים שרדו` }));
+    teams[lose].players.forEach(p => res.push({ p, label: `${alive(lose).length} חיילים שרדו` }));
+    g.result = res;
+  }
+  nextTurn(true);
+
+  const g = {
+    uiFor(p) {
+      const my = teams.L.players.includes(p) ? 'L' : teams.R.players.includes(p) ? 'R' : null;
+      if (!my) return null;
+      if (phase === 'aim' && ctrl === p) return { ui: 'fort', title: `חייל ${active.n} – תורך! 🎯`, sel: wsel, weapons: WEAPONS.map((w, i) => ({ icon: w.icon, name: w.name, ammo: active.ammo[i] })) };
+      if (turnSide === my) return { ui: 'wait', text: phase === 'aim' ? `${ctrl.name} מכוון/ת עם חייל ${active.n}…` : '💥 בוווום!' };
+      return { ui: 'wait', text: phase === 'aim' ? 'האויב מכוון… תתכוננו 😬' : '💥 בוווום!' };
+    },
+    input(p, m) {
+      if (phase !== 'aim' || p !== ctrl) return;
+      if (typeof m.w === 'number') { const i = m.w | 0; if (WEAPONS[i] && active.ammo[i] > 0) { wsel = i; sendUI(p, g.uiFor(p)); } }
+      if (Array.isArray(m.aim)) { aim.a = +m.aim[0] || 0; aim.p = clamp(+m.aim[1] || 0, 0, 1); }
+      if (m.fire) fire();
+    },
+    update(dt) {
+      if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
+      shake = Math.max(0, shake - dt * 2);
+      if (phase === 'aim') {
+        timer -= dt;
+        if (ctrl === cpu || ctrl.bot) {
+          botT += dt;
+          if (botT > 0.9 && !botPlan) botPlan = planBot();
+          if (botPlan) { aim.a += (botPlan.a - aim.a) * Math.min(1, dt * 3); aim.p += (botPlan.p - aim.p) * Math.min(1, dt * 3); }
+          if (botT > 2.6) { aim = { a: botPlan.a, p: botPlan.p }; fire(); }
+        } else if (!ctrl.connected) timer = Math.min(timer, 3);
+        if (phase === 'aim' && timer <= 0) { phase = 'fly'; settleT = 0; syncControllers(); }
+      }
+      const sub = 4, sdt = dt / sub;
+      for (let k = 0; k < sub; k++) for (const pr of projs) if (!pr.dead) stepProj(pr, sdt);
+      for (let i = projs.length - 1; i >= 0; i--) if (projs[i].dead) projs.splice(i, 1);
+      fallAcc += dt; while (fallAcc > 0.035) { fallAcc -= 0.035; if (anyFalling) fallTick(); }
+      let moving = false;
+      for (const s of soldiers()) {
+        if (!s.alive) continue;
+        if (s.flash) s.flash = Math.max(0, s.flash - dt);
+        s.vy += G * dt;
+        let nx = s.x + s.vx * dt, ny = s.y + s.vy * dt;
+        if (s.vx && solidPx(nx + Math.sign(s.vx) * 8, s.y - 17)) { nx = s.x; s.vx *= -0.2; }
+        if (s.vy > 0 && solidPx(nx, ny)) {
+          ny = ny >= GROUND * CS ? GROUND * CS : Math.floor(ny / CS) * CS;
+          if (s.vy > 700) hurt(s, (s.vy - 700) / 6);
+          s.vy = 0; s.vx *= 0.55; if (Math.abs(s.vx) < 25) s.vx = 0;
+        } else if (s.vy < 0 && solidPx(nx, ny - 34)) { s.vy = 0; ny = s.y; }
+        s.x = nx; s.y = ny;
+        if (s.y > H + 60 || s.x < -40 || s.x > W + 40) { hurt(s, 999); continue; }
+        if (s.vx || s.vy) moving = true;
+      }
+      for (const pt of parts) {
+        pt.t += dt;
+        if (pt.type === 'debris') { pt.vy += G * dt; pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.rot += dt * 8; }
+        if (pt.type === 'smoke') { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.r += dt * 20; }
+        if (pt.type === 'ghost') pt.y -= dt * 40;
+      }
+      for (let i = parts.length - 1; i >= 0; i--) if (parts[i].t > parts[i].life) parts.splice(i, 1);
+      for (let i = tracers.length - 1; i >= 0; i--) { tracers[i].t += dt; if (tracers[i].t > 0.35) tracers.splice(i, 1); }
+      if (phase === 'fly') {
+        if (!projs.length && !anyFalling && !moving && !tracers.length) settleT += dt; else settleT = 0;
+        if (settleT > 0.9) {
+          if (!alive('L').length || !alive('R').length || totalTurns >= 60) finish();
+          else nextTurn(false);
+        }
+      }
+    },
+    draw() {
+      ctx.save();
+      if (shake > 0) ctx.translate(rand(-12, 12) * shake, rand(-12, 12) * shake);
+      const sky = ctx.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, '#5aa9e6'); sky.addColorStop(1, '#cfe9ff');
+      ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, H + 40);
+      ctx.fillStyle = '#9cc9a0'; ctx.beginPath(); ctx.moveTo(0, GROUND * CS);
+      for (let x = 0; x <= W; x += 60) ctx.lineTo(x, GROUND * CS - 60 - Math.sin(x / 260) * 60 - Math.sin(x / 97) * 15);
+      ctx.lineTo(W, GROUND * CS); ctx.fill();
+      ctx.fillStyle = '#5c8a3a'; ctx.fillRect(-20, GROUND * CS, W + 40, 18);
+      ctx.fillStyle = '#7a5230'; ctx.fillRect(-20, GROUND * CS + 18, W + 40, H);
+      for (let y = 0; y < GROUND; y++) for (let x = 0; x < GW; x++) {
+        const c = cells[y * GW + x]; if (!c) continue;
+        const m = MAT[c.m], px = x * CS, py = y * CS;
+        ctx.globalAlpha = c.m === 'G' ? 0.7 : 1;
+        ctx.fillStyle = m.c; ctx.fillRect(px, py, CS, CS);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = 2; ctx.strokeRect(px + 1, py + 1, CS - 2, CS - 2);
+        if (c.m === 'W') { ctx.strokeStyle = 'rgba(0,0,0,.15)'; ctx.beginPath(); ctx.moveTo(px + 3, py + 10); ctx.lineTo(px + CS - 3, py + 10); ctx.moveTo(px + 3, py + 20); ctx.lineTo(px + CS - 3, py + 20); ctx.stroke(); }
+        if (c.m === 'B') { ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.beginPath(); ctx.moveTo(px, py + 15); ctx.lineTo(px + CS, py + 15); ctx.moveTo(px + 15, py); ctx.lineTo(px + 15, py + 15); ctx.stroke(); }
+        if (c.m === 'T') { ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(px + 4, py + 4, 4, 4); ctx.fillRect(px + CS - 8, py + CS - 8, 4, 4); }
+        if (c.m === 'G') { ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.moveTo(px + 6, py + CS - 6); ctx.lineTo(px + CS - 8, py + 8); ctx.stroke(); }
+        const dmg = 1 - c.hp / c.max;
+        if (dmg > 0.05) { ctx.fillStyle = `rgba(0,0,0,${dmg * 0.5})`; ctx.fillRect(px, py, CS, CS); }
+      }
+      if (phase === 'aim' && active) {
+        const w = WEAPONS[wsel];
+        if (w && w.hitscan) {
+          ctx.strokeStyle = 'rgba(255,40,40,.7)'; ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+          ctx.beginPath(); ctx.moveTo(active.x, active.y - 26); ctx.lineTo(active.x + Math.cos(aim.a) * 600, active.y - 26 + Math.sin(aim.a) * 600); ctx.stroke(); ctx.setLineDash([]);
+        } else if (w) {
+          const pts = []; simulate(aim.a, aim.p, w, 0.75, pts);
+          pts.forEach(([x, y], k) => { ctx.fillStyle = `rgba(255,255,255,${0.9 - k / pts.length * 0.7})`; ctx.beginPath(); ctx.arc(x, y, 6 - k / pts.length * 3, 0, Math.PI * 2); ctx.fill(); });
+        }
+      }
+      for (const s of soldiers()) {
+        if (!s.alive) continue;
+        const col = teams[s.side].color, x = s.x, y = s.y;
+        ctx.fillStyle = s.flash > 0 ? '#fff' : col; rrect(x - 9, y - 26, 18, 22, 5); ctx.fill();
+        ctx.fillStyle = '#333'; ctx.fillRect(x - 8, y - 5, 6, 5); ctx.fillRect(x + 2, y - 5, 6, 5);
+        ctx.fillStyle = '#f1c27d'; ctx.beginPath(); ctx.arc(x, y - 32, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#3d4a2a'; ctx.beginPath(); ctx.arc(x, y - 34, 9, Math.PI, 0); ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - 15, y - 52, 30, 6);
+        ctx.fillStyle = s.hp > 50 ? '#51cf66' : s.hp > 25 ? '#fcc419' : '#ff6b6b'; ctx.fillRect(x - 15, y - 52, 30 * s.hp / 100, 6);
+        T(s.n, x, y - 15, 13, '#fff');
+        if (s === active && phase === 'aim') T('▼', x, y - 70 + Math.sin(performance.now() / 150) * 5, 30, col);
+      }
+      for (const pr of projs) {
+        const id = pr.w.id;
+        if (id === 'bz') {
+          const a = Math.atan2(pr.vy, pr.vx);
+          ctx.save(); ctx.translate(pr.x, pr.y); ctx.rotate(a);
+          ctx.fillStyle = '#ff922b'; ctx.beginPath(); ctx.moveTo(-14, -5); ctx.lineTo(-30 - Math.random() * 10, 0); ctx.lineTo(-14, 5); ctx.fill();
+          ctx.fillStyle = '#495057'; ctx.fillRect(-14, -5, 26, 10); ctx.fillStyle = '#e03131'; ctx.beginPath(); ctx.moveTo(12, -5); ctx.lineTo(20, 0); ctx.lineTo(12, 5); ctx.fill();
+          ctx.restore();
+        } else {
+          ctx.fillStyle = id === 'gr' ? '#2b8a3e' : id === 'mo' ? '#212529' : id === 'bl' ? '#e8590c' : '#c92a2a';
+          ctx.beginPath(); ctx.arc(pr.x, pr.y, id === 'bl' ? 6 : 10, 0, Math.PI * 2); ctx.fill();
+          if (pr.w.fuse) T(Math.max(0, Math.ceil(pr.w.fuse - pr.t)), pr.x, pr.y - 24, 20, '#fff');
+        }
+      }
+      for (const tr of tracers) { ctx.strokeStyle = `rgba(255,240,150,${1 - tr.t / 0.35})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(tr.x1, tr.y1); ctx.lineTo(tr.x2, tr.y2); ctx.stroke(); }
+      for (const pt of parts) {
+        const f = pt.t / pt.life;
+        if (pt.type === 'debris') { ctx.save(); ctx.translate(pt.x, pt.y); ctx.rotate(pt.rot); ctx.globalAlpha = 1 - f; ctx.fillStyle = pt.c; ctx.fillRect(-pt.s / 2, -pt.s / 2, pt.s, pt.s); ctx.restore(); }
+        else if (pt.type === 'smoke') { ctx.globalAlpha = (1 - f) * 0.5; ctx.fillStyle = '#6c757d'; ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2); ctx.fill(); }
+        else if (pt.type === 'flash') { ctx.globalAlpha = 1 - f; const gg = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, pt.r * (0.6 + f * 0.6)); gg.addColorStop(0, '#fff3bf'); gg.addColorStop(0.4, '#ff922b'); gg.addColorStop(1, 'rgba(255,80,0,0)'); ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(pt.x, pt.y, pt.r * (0.6 + f * 0.6), 0, Math.PI * 2); ctx.fill(); }
+        else if (pt.type === 'ghost') { ctx.globalAlpha = 1 - f; T('💀', pt.x, pt.y, 30); }
+        ctx.globalAlpha = 1;
+      }
+      ctx.restore();
+      // HUD
+      [['L', 40, 'left'], ['R', W - 40, 'right']].forEach(([side, x, al]) => {
+        const T_ = teams[side];
+        T(teamName(side), x, 40, 34, T_.color, al);
+        T(`👥 ${alive(side).length}/10`, x, 84, 30, '#fff', al);
+      });
+      const w = WEAPONS[wsel];
+      T(phase === 'aim' ? `⏱ ${Math.max(0, Math.ceil(timer))}` : '', W / 2, 40, 38, timer < 6 ? '#ff6b6b' : '#fff');
+      if (phase === 'aim' && w) T(`${w.icon} ${w.name}${w.ammo < 99 ? ` (${active.ammo[wsel]})` : ''}`, W / 2, 90, 32, '#fff');
+      T(`רוח ${wind < 0 ? '←' : '→'} ${Math.abs(wind)}`, W / 2, 132, 24, 'rgba(255,255,255,.85)');
+      if (banner) {
+        ctx.globalAlpha = Math.min(1, banner.t * 2);
+        rrect(W / 2 - 400, 380, 800, 110, 30); ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fill();
+        T(banner.text, W / 2, 435, 50, banner.color);
+        ctx.globalAlpha = 1;
+      }
+    },
+  };
+  return g;
+}
+
+// ====================================================================== music (generated live with Web Audio – original tunes, no files)
+const Music = (() => {
+  let ac = null, master = null, noiseBuf = null, cur = null, step = 0, nextT = 0, enabled = true;
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+  const NOTE = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  const midi = tok => { const m = /^([A-G])(#|b)?(\d)$/.exec(tok); return m ? 12 * (+m[3] + 1) + NOTE[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) : null; };
+
+  function build(d) {
+    const len = d.prog.length * 16, bass = [], arp = [], mel = [];
+    d.prog.forEach((ch, bi) => {
+      const root = midi(ch.replace('m', '')), tri = ch.endsWith('m') ? [0, 3, 7] : [0, 4, 7];
+      for (let s = 0; s < 16; s++) {
+        const i = bi * 16 + s, b = d.bass[s], a = d.arp[s];
+        bass[i] = b === 'x' ? root : b === 'o' ? root + 7 : b === '8' ? root + 12 : null;
+        arp[i] = a === '.' || a == null ? null : a === '3' ? root + 36 : root + 24 + tri[+a];
+      }
+    });
+    if (d.mel) d.mel.replace(/\|/g, ' ').trim().split(/\s+/).forEach((tok, k) => { mel[k * 2] = tok === '.' ? null : midi(tok); });
+    return Object.assign({ len }, d, { voices: [
+      { notes: bass, type: d.bassWave || 'triangle', vol: d.bassVol || 0.5, dur: 2 },
+      { notes: arp, type: d.arpWave || 'triangle', vol: d.arpVol || 0.16, dur: 1 },
+      { notes: mel, type: d.melWave || 'square', vol: d.melVol || 0.12, dur: 2 },
+    ] });
+  }
+
+  const TRACKS = {
+    lobby: build({ bpm: 100, prog: ['A2m', 'F2', 'C3', 'G2'], bass: 'x.......o...x...', arp: '0.1.2.1.0.1.2.1.', arpWave: 'sine', arpVol: .14,
+      mel: 'E5 . D5 C5 . . A4 . | C5 . D5 E5 . . F5 E5 | G5 . E5 C5 . . E5 D5 | B4 . . G4 . B4 D5 .', melWave: 'triangle', melVol: .2,
+      drums: { k: 'x.......x.......', h: '..x...x...x...x.' } }),
+    tron: build({ bpm: 124, prog: ['D2m', 'A#1', 'F2', 'C2'], bass: 'x8x8x8x8x8x8x8x8', bassWave: 'sawtooth', bassVol: .22, arp: '0121012101210121', arpWave: 'square', arpVol: .05,
+      mel: 'A5 . . G5 F5 . E5 . | D5 . . . F5 . A5 . | C6 . . A5 G5 . F5 . | E5 . G5 . C5 . . .', melWave: 'sawtooth', melVol: .07,
+      drums: { k: 'x...x...x...x...', s: '....x.......x...', h: '..x...x...x...x.' } }),
+    pong: build({ bpm: 132, prog: ['C3', 'A2m', 'F2', 'G2'], bass: 'x...o...x...o...', bassWave: 'square', bassVol: .12, arp: '0.2.1.2.0.2.1.2.', arpWave: 'square', arpVol: .05,
+      mel: 'C5 E5 G5 . E5 . C5 . | A4 C5 E5 . C5 . A4 . | F4 A4 C5 . F5 . E5 D5 | D5 . B4 . G4 . B4 .', melWave: 'square', melVol: .08,
+      drums: { k: 'x.......x.x.....', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.' } }),
+    quiz: build({ bpm: 112, prog: ['E2m', 'C3', 'G2', 'D3'], bass: 'x...x...x...x...', bassWave: 'sine', bassVol: .6, arp: '0.1.2.1.0.1.2.1.', arpWave: 'triangle', arpVol: .14,
+      mel: 'B4 . . . G4 . . . | E5 . . . C5 . . . | D5 . B4 . G4 . . . | F#4 . A4 . D5 . . .', melWave: 'triangle', melVol: .18,
+      drums: { h: 'x.x.x.x.x.x.x.x.', k: 'x.......x.......' } }),
+    react: build({ bpm: 150, prog: ['C2m', 'C2m', 'G#1', 'G1'], bass: 'x.x.x.x.x.x.x.x.', bassWave: 'sawtooth', bassVol: .16, arp: '3.......3.......', arpWave: 'sine', arpVol: .1,
+      drums: { k: 'x...x...x...x...', h: 'xxxxxxxxxxxxxxxx' } }),
+    sumo: build({ bpm: 96, prog: ['A2m', 'A2m', 'G2', 'A2m'], bass: 'x.....x...x.....', bassWave: 'sine', bassVol: .6, arp: '................',
+      mel: 'A4 . C5 D5 E5 . . . | G5 . E5 D5 C5 . A4 . | G4 . A4 C5 D5 . . . | E5 . D5 C5 A4 . . .', melWave: 'triangle', melVol: .2,
+      drums: { k: 'x..x..x.x...x...', s: '....x.......x..x' } }),
+    ships: build({ bpm: 96, prog: ['D2m', 'C2', 'A#1', 'A1'], bass: 'x.....x.x.......', bassWave: 'sine', bassVol: .6, arp: '0..1..2..1..0...', arpWave: 'triangle', arpVol: .12,
+      mel: 'D5 . . A4 . . D5 E5 | F5 . . E5 . . D5 . | C5 . . A4 . . C5 D5 | E5 . . . . . . .', melWave: 'triangle', melVol: .18,
+      drums: { k: 'x.......x.......', h: '....x.......x...' } }),
+    checkers: build({ bpm: 84, prog: ['D3m', 'G2', 'C3', 'A2m'], bass: 'x...o...x...o...', bassWave: 'sine', bassVol: .55, arp: '0..1..2.0..1..2.', arpWave: 'triangle', arpVol: .1,
+      mel: 'F5 . E5 D5 . . A4 . | B4 . D5 . G5 . F5 . | E5 . . C5 . . G4 . | A4 . . . C5 . E5 .', melWave: 'sine', melVol: .2,
+      drums: { k: 'x.......x.......', h: '..x...x...x...x.' } }),
+    fort: build({ bpm: 112, prog: ['G2m', 'D#2', 'F2', 'D2'], bass: 'x...o...x...o...', bassWave: 'square', bassVol: .1, arp: '................',
+      mel: 'G4 . G4 A4 A#4 . A4 G4 | G4 . A#4 . D5 . . . | C5 . A#4 A4 F4 . A4 . | D5 . . C5 A4 . F#4 .', melWave: 'square', melVol: .08,
+      drums: { k: 'x.......x.......', s: 'x.x.x...x.xxx.x.' } }),
+    results: build({ bpm: 120, prog: ['C3', 'F2', 'G2', 'C3'], bass: 'x...o...x...o...', bassWave: 'triangle', bassVol: .5, arp: '0.1.2.1.0.1.2.1.', arpWave: 'triangle', arpVol: .1,
+      mel: 'C5 . E5 . G5 . C6 . | A5 . F5 . A5 . C6 . | B5 . G5 . D6 . B5 . | C6 . . . . . . .', melWave: 'square', melVol: .09,
+      drums: { k: 'x...x...x...x...', s: '....x.......x...' } }),
+  };
+
+  function init() {
+    if (ac) return;
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      master = ac.createGain(); master.gain.value = enabled ? 0.5 : 0;
+      const comp = ac.createDynamicsCompressor(); master.connect(comp); comp.connect(ac.destination);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate * 0.5, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      setInterval(tick, 25);
+    } catch (e) { ac = null; }
+  }
+  function env(g, t, vol, dur) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); }
+  function tone(t, m, dur, type, vol) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.value = mtof(m); env(g, t, vol, dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.05);
+  }
+  function noise(t, dur, vol, ftype, freq) {
+    const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    s.buffer = noiseBuf; f.type = ftype; f.frequency.value = freq; env(g, t, vol, dur);
+    s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t + dur + 0.05);
+  }
+  function kick(t) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.14); env(g, t, 0.8, 0.22);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.3);
+  }
+  function playStep(s, t) {
+    const sp = 60 / cur.bpm / 4;
+    for (const v of cur.voices) { const n = v.notes[s]; if (n != null) tone(t, n, sp * v.dur * 0.95, v.type, v.vol); }
+    const d = cur.drums || {}, k = s % 16;
+    if (d.k && d.k[k] === 'x') kick(t);
+    if (d.s && d.s[k] === 'x') noise(t, 0.14, 0.3, 'bandpass', 1800);
+    if (d.h && d.h[k] === 'x') noise(t, 0.04, 0.09, 'highpass', 7000);
+  }
+  function tick() {
+    if (!ac || !cur || ac.state !== 'running') { if (ac) nextT = ac.currentTime + 0.05; return; }
+    if (nextT < ac.currentTime) nextT = ac.currentTime + 0.05;
+    while (nextT < ac.currentTime + 0.12) { playStep(step, nextT); nextT += 60 / cur.bpm / 4; step = (step + 1) % cur.len; }
+  }
+  function sfx(type, size = 1) {
+    if (!ac || ac.state !== 'running' || !enabled) return;
+    const t = ac.currentTime + 0.01;
+    if (type === 'boom') { kick(t); noise(t, 0.5 + size * 0.5, 0.6 * size + 0.2, 'lowpass', 500); }
+    else if (type === 'splash') noise(t, 0.45, 0.35, 'bandpass', 900);
+    else if (type === 'shot') { noise(t, 0.12, 0.5, 'highpass', 2000); kick(t); }
+    else if (type === 'whoosh') noise(t, 0.5, 0.25, 'bandpass', 2500);
+    else if (type === 'thump') { kick(t); }
+    else if (type === 'hit') { tone(t, 72, 0.12, 'square', 0.12); tone(t + 0.08, 67, 0.15, 'square', 0.1); }
+    else if (type === 'click') tone(t, 84, 0.06, 'triangle', 0.15);
+  }
+  return {
+    sfx,
+    play(name) { init(); if (cur === TRACKS[name]) return; cur = TRACKS[name] || null; step = 0; if (ac) nextT = ac.currentTime + 0.08; },
+    unlock() { init(); if (ac && ac.state !== 'running') ac.resume().then(updateMusicHint).catch(() => {}); },
+    get running() { return !!ac && ac.state === 'running'; },
+    get enabled() { return enabled; },
+    toggle() { enabled = !enabled; if (master) master.gain.setTargetAtTime(enabled ? 0.5 : 0, ac.currentTime, 0.05); return enabled; },
+  };
+})();
+
+function updateMusicHint() {
+  const h = $('musicHint'); if (!h) return;
+  h.hidden = Music.running || !Music.enabled;
+}
+['keydown', 'pointerdown', 'click', 'touchstart'].forEach(ev => window.addEventListener(ev, () => { Music.unlock(); setTimeout(updateMusicHint, 300); }));
+setInterval(updateMusicHint, 1500);
+
 // ====================================================================== registry
 const GAMES = [
   { id: 'tron', name: 'אופנועי אור', icon: '🏍️', desc: 'אל תתנגשו בקירות ובשובל · 1–8', create: createTron },
@@ -739,9 +1666,14 @@ const GAMES = [
   { id: 'quiz', name: 'טריוויה', icon: '🧠', desc: 'מי עונה נכון והכי מהר · 1–8', create: createQuiz },
   { id: 'react', name: 'הכי מהיר', icon: '⚡', desc: 'לוחצים ברגע שהמסך ירוק · 1–8', create: createReact },
   { id: 'sumo', name: 'סומו', icon: '💥', desc: 'דוחפים את כולם מהזירה · 1–8', create: createSumo },
+  { id: 'ships', name: 'צוללות', icon: '🚢', desc: 'מטביעים את הצי של היריב · 1–2', create: createShips },
+  { id: 'checkers', name: 'דמקה', icon: '⚫', desc: 'הקלאסיקה – אחד על אחד · 1–2', create: createCheckers },
+  { id: 'fort', name: 'מלחמת מבצרים', icon: '🏰', desc: '10 חיילים, 5 כלי נשק, הורסים בתים · 1–8', create: createFort },
 ];
 
 renderLobby();
+Music.play('lobby');
+Music.unlock();
 startNet();
 requestAnimationFrame(loop);
 try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
