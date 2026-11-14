@@ -1287,8 +1287,30 @@ function createFort(ps) {
   for (let x = 40; x < W - 60; x += rand(150, 230)) deco.houses.push({ x, w: rand(70, 110), h: rand(50, 80), c: HC[Math.floor(rand(0, HC.length))], r: RC[Math.floor(rand(0, RC.length))] });
   for (let k = 0; k < 9; k++) deco.trees.push({ x: rand(0, W), s: rand(0.7, 1.2) });
   for (let k = 0; k < 40; k++) deco.stones.push({ x: rand(0, W), y: rand(GY + 40, H - 8), r: rand(3, 8) });
-  function drawHood() {
-    const now = performance.now() / 1000;
+  const rr = (ctx, x, y, w, h, r) => { r = Math.min(r, w / 2, h / 2); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); };
+  const mkCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+  // everything heavy is painted once into small images and then just copied each frame (the Chromecast is slow)
+  let bgImg = null; const sprites = new Map();
+  function drawHood() { if (!bgImg) { bgImg = mkCanvas(W, H); paintHood(bgImg.getContext('2d')); } ctx.drawImage(bgImg, 0, 0); }
+  function drawBlock(c, px, py) {
+    const d = 1 - c.hp / c.max, lvl = d <= 0.05 ? 0 : d <= 0.3 ? 1 : d <= 0.6 ? 2 : 3;
+    const key = c.m + c.team + lvl;
+    let img = sprites.get(key);
+    if (!img) { img = mkCanvas(CS, CS); paintBlock(img.getContext('2d'), { m: c.m, team: c.team, hp: [1, 0.8, 0.55, 0.25][lvl], max: 1 }, 0, 0); sprites.set(key, img); }
+    ctx.drawImage(img, px, py);
+  }
+  function drawNeighbor(s, active_) {
+    const flash = s.flash > 0, key = 'n' + s.side + (s.n % 4) + (flash ? 'f' : '');
+    let img = sprites.get(key);
+    if (!img) { img = mkCanvas(60, 60); paintNeighbor(img.getContext('2d'), s, 30, 56, flash); sprites.set(key, img); }
+    const bob = active_ ? Math.sin(performance.now() / 120) * 2 : 0, x = s.x, y = s.y;
+    ctx.drawImage(img, x - 30, y - 56 + bob);
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(x - 17, y - 54, 34, 8);
+    if (s.hp > 0) { ctx.fillStyle = s.hp > MAXHP / 2 ? '#51cf66' : s.hp > MAXHP / 4 ? '#fcc419' : '#ff6b6b'; ctx.fillRect(x - 17, y - 54, 34 * s.hp / MAXHP, 8); }
+    T(s.n, x, y - 65, 15, '#2b2118');
+  }
+  function paintHood(ctx) {
+    const now = 0;
     const sky = ctx.createLinearGradient(0, 0, 0, GY); sky.addColorStop(0, '#4fb3ff'); sky.addColorStop(1, '#d9f3ff');
     ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, GY + 40);
     // sun
@@ -1332,11 +1354,11 @@ function createFort(ps) {
     ctx.fillStyle = '#a86b3c'; ctx.fillRect(-20, GY + 26, W + 40, H);
     ctx.fillStyle = '#8a5530'; for (const st of deco.stones) { ctx.beginPath(); ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2); ctx.fill(); }
   }
-  function drawBlock(c, px, py) {
+  function paintBlock(ctx, c, px, py) {
     const m = c.m, out = '#2b2118';
     let col = m === 'W' ? PAINT[c.team] : MAT[m].c;
     if (m === 'G') col = '#ffffff';
-    rrect(px + 1, py + 1, CS - 2, CS - 2, 6); ctx.fillStyle = col; ctx.fill();
+    rr(ctx, px + 1, py + 1, CS - 2, CS - 2, 6); ctx.fillStyle = col; ctx.fill();
     ctx.save(); ctx.clip();
     if (m === 'W') { ctx.fillStyle = 'rgba(0,0,0,.12)'; for (let k = 8; k < CS; k += 9) ctx.fillRect(px, py + k, CS, 2); }
     if (m === 'B') { ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(px, py + 16, CS, 2); ctx.fillRect(px + 16, py, 2, 16); ctx.fillRect(px + 7, py + 18, 2, 16); ctx.fillRect(px + 25, py + 18, 2, 16); }
@@ -1354,13 +1376,13 @@ function createFort(ps) {
     if (dmg > 0.05) { ctx.fillStyle = `rgba(60,30,10,${dmg * 0.4})`; ctx.fillRect(px, py, CS, CS); }
     if (dmg > 0.3) { ctx.strokeStyle = out; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(px + 6, py + 4); ctx.lineTo(px + 14, py + 14); ctx.lineTo(px + 10, py + 20); ctx.lineTo(px + 20, py + 30); if (dmg > 0.6) { ctx.moveTo(px + CS - 4, py + 8); ctx.lineTo(px + CS - 14, py + 16); ctx.lineTo(px + CS - 9, py + 24); } ctx.stroke(); }
     ctx.restore();
-    rrect(px + 1, py + 1, CS - 2, CS - 2, 6); ctx.strokeStyle = out; ctx.lineWidth = 3; ctx.stroke();
+    rr(ctx, px + 1, py + 1, CS - 2, CS - 2, 6); ctx.strokeStyle = out; ctx.lineWidth = 3; ctx.stroke();
   }
-  function drawNeighbor(s, active_) {
-    const col = teams[s.side].color, x = s.x, y = s.y, dir = s.side === 'L' ? 1 : -1, out = '#2b2118';
-    const bob = active_ ? Math.sin(performance.now() / 120) * 2 : 0;
+  function paintNeighbor(ctx, s, x, y, flash) {
+    const col = teams[s.side].color, dir = s.side === 'L' ? 1 : -1, out = '#2b2118';
+    const bob = 0;
     ctx.fillStyle = out; ctx.beginPath(); ctx.ellipse(x - 6, y - 2, 6, 3.5, 0, 0, Math.PI * 2); ctx.ellipse(x + 6, y - 2, 6, 3.5, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = s.flash > 0 ? '#fff' : col; ctx.beginPath(); ctx.ellipse(x, y - 17 + bob, 13, 16, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = flash ? '#fff' : col; ctx.beginPath(); ctx.ellipse(x, y - 17 + bob, 13, 16, 0, 0, Math.PI * 2); ctx.fill();
     ctx.lineWidth = 3; ctx.strokeStyle = out; ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.ellipse(x, y - 10 + bob, 8, 7, 0, 0, Math.PI * 2); ctx.fill();
     for (const ex of [-5, 5]) {
@@ -1373,10 +1395,8 @@ function createFort(ps) {
     else if (k === 1) { ctx.fillStyle = '#f783ac'; ctx.beginPath(); ctx.moveTo(x, hy); ctx.lineTo(x - 10, hy - 6); ctx.lineTo(x - 10, hy + 6); ctx.closePath(); ctx.moveTo(x, hy); ctx.lineTo(x + 10, hy - 6); ctx.lineTo(x + 10, hy + 6); ctx.closePath(); ctx.fill(); }
     else if (k === 2) { ctx.strokeStyle = out; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x - 4, hy + 3); ctx.quadraticCurveTo(x - 2, hy - 10, x + 4, hy - 6); ctx.moveTo(x + 2, hy + 3); ctx.quadraticCurveTo(x + 6, hy - 8, x + 10, hy - 2); ctx.stroke(); }
     else { ctx.fillStyle = '#fff'; ctx.fillRect(x - 8, hy - 4, 16, 8); ctx.beginPath(); ctx.arc(x - 5, hy - 6, 6, 0, Math.PI * 2); ctx.arc(x + 5, hy - 6, 6, 0, Math.PI * 2); ctx.arc(x, hy - 10, 6, 0, Math.PI * 2); ctx.fill(); }
-    rrect(x - 17, y - 54, 34, 8, 4); ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fill();
-    if (s.hp > 0) { rrect(x - 17, y - 54, 34 * s.hp / MAXHP, 8, 4); ctx.fillStyle = s.hp > MAXHP / 2 ? '#51cf66' : s.hp > MAXHP / 4 ? '#fcc419' : '#ff6b6b'; ctx.fill(); }
-    T(s.n, x, y - 65, 15, out);
   }
+
   function crateAt(x, y) { return crates.find(c => Math.abs(x - c.x) < 28 && Math.abs(y - c.y) < 28); }
   function collect(cr, team) {
     crates.splice(crates.indexOf(cr), 1);
