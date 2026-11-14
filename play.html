@@ -271,10 +271,10 @@ const UI = {
     pad.appendChild(g);
   },
 
-  tap(pad) {
-    const b = el('button', 'tap', 'לחץ!');
+  tap(pad, m) {
+    const b = el('button', 'tap', esc(m.label || 'לחץ!'));
     b.addEventListener('pointerdown', e => { e.preventDefault(); send({ t: 'in', tap: 1 }); buzz(15); b.classList.add('hit'); setTimeout(() => b.classList.remove('hit'), 100); });
-    pad.appendChild(el('div', 'hint', 'לוחצים רק כשהמסך בטלוויזיה ירוק!'));
+    pad.appendChild(el('div', 'hint', esc(m.hint || 'לוחצים רק כשהמסך בטלוויזיה ירוק!')));
     pad.appendChild(b);
   },
 
