@@ -62,6 +62,14 @@
     background: radial-gradient(circle at 35% 30%, #ff8787, #e03131 60%, #a51111); font-size: 44px; font-weight: 900; box-shadow: 0 14px 0 #7a0c0c; }
   .tap:active, .tap.hit { transform: translateY(10px); box-shadow: 0 4px 0 #7a0c0c; }
 
+  .extra { flex: 0 0 auto; padding: 18px; border-radius: 18px; font-size: 22px; font-weight: 800; background: linear-gradient(90deg, #fcc419, #f76707); color: #2b1600; }
+  .extra:disabled { background: #ffffff14; color: #fff; opacity: .6; }
+  .race { flex: 1; display: flex; gap: 12px; direction: ltr; }
+  .steer { flex: 1; border-radius: 26px; background: #ffffff1c; font-size: 64px; }
+  .steer.on { background: #4dabf7; transform: scale(.98); }
+  .turbo { flex: 0 0 28%; border-radius: 26px; font-size: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: radial-gradient(circle at 35% 30%, #ffa94d, #e8590c); }
+  .turbo small { font-size: 16px; font-weight: 800; }
+  .turbo:disabled { opacity: .35; }
   .joy { flex: 1; display: flex; gap: 16px; align-items: center; justify-content: center; }
   @media (orientation: portrait) { .joy { flex-direction: column; } }
   .base { position: relative; width: min(78vw, 52vh); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(#ffffff10, #ffffff26); border: 3px solid #ffffff30; touch-action: none; }
@@ -276,6 +284,29 @@ const UI = {
     b.addEventListener('pointerdown', e => { e.preventDefault(); send({ t: 'in', tap: 1 }); buzz(15); b.classList.add('hit'); setTimeout(() => b.classList.remove('hit'), 100); });
     pad.appendChild(el('div', 'hint', esc(m.hint || 'לוחצים רק כשהמסך בטלוויזיה ירוק!')));
     pad.appendChild(b);
+    if (m.extra) {
+      const x = el('button', 'extra', esc(m.extra.label)); x.disabled = !!m.extra.disabled;
+      x.addEventListener('pointerdown', e => { e.preventDefault(); if (x.disabled) return; x.disabled = true; buzz([30, 30, 30]); send({ t: 'in', btn: m.extra.id }); });
+      pad.appendChild(x);
+    }
+  },
+
+  race(pad, m) {
+    pad.appendChild(el('div', 'hint', 'החזיקו ⬅ / ➡ כדי לפנות · הרכב נוסע לבד · 🔥 טורבו'));
+    const row = el('div', 'race');
+    const L = el('button', 'steer', '⬅'), R = el('button', 'steer', '➡');
+    let left = 3; const tb = el('button', 'turbo', `🔥<small>טורבו ×${left}</small>`); tb.disabled = left <= 0;
+    left = m.turbo | 0; tb.innerHTML = `🔥<small>טורבו ×${left}</small>`; tb.disabled = left <= 0;
+    row.appendChild(L); row.appendChild(tb); row.appendChild(R); pad.appendChild(row);
+    const held = { L: new Set(), R: new Set() }; let last = 0;
+    const upd = () => { const s = (held.R.size ? 1 : 0) - (held.L.size ? 1 : 0); L.classList.toggle('on', held.L.size > 0); R.classList.toggle('on', held.R.size > 0); if (s !== last) { last = s; send({ t: 'in', steer: s }); buzz(8); } };
+    for (const [b, k] of [[L, 'L'], [R, 'R']]) {
+      b.addEventListener('pointerdown', e => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (x) {} held[k].add(e.pointerId); upd(); });
+      const off = e => { held[k].delete(e.pointerId); upd(); };
+      b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('lostpointercapture', off);
+    }
+    tb.addEventListener('pointerdown', e => { e.preventDefault(); if (left <= 0) return; left--; send({ t: 'in', turbo: 1 }); buzz(40); tb.innerHTML = `🔥<small>טורבו ×${left}</small>`; tb.disabled = left <= 0; });
+    cleanup.push(() => { if (last) send({ t: 'in', steer: 0 }); });
   },
 
   joystick(pad) {
