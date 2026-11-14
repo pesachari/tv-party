@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TV Party 🎮</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #070a17; color: #fff; overflow: hidden;
+    font-family: "Segoe UI", Roboto, Arial, sans-serif; }
+  #cv { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: contain; display: block; }
+  #lobby { position: fixed; inset: 0; display: grid; grid-template-columns: 1fr 1.15fr; grid-template-rows: auto 1fr auto;
+    gap: 2vh 3vw; padding: 3vh 4vw 4.5vh; background: radial-gradient(circle at 20% 10%, #2b2f7a 0%, #0b1026 55%, #070a17 100%); }
+  #lobby[hidden] { display: none; }
+  h1 { grid-column: 1 / -1; margin: 0; font-size: 5.2vh; letter-spacing: .02em; }
+  h1 span { background: linear-gradient(90deg, #ff4d6d, #fcc419, #51cf66, #4dabf7); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .card { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); border-radius: 3vh; padding: 3vh; }
+  #joinBox { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.6vh; text-align: center; }
+  #qr { width: 30vh; height: 30vh; background: #fff; border-radius: 2vh; padding: 1.4vh; display: grid; place-items: center; color: #000; font-size: 2vh; }
+  #qr img { width: 100%; height: 100%; image-rendering: pixelated; }
+  .big { font-size: 3vh; opacity: .9; }
+  #code { font-size: 9vh; font-weight: 800; letter-spacing: .25em; direction: ltr; line-height: 1; }
+  #url { font-size: 2vh; opacity: .65; direction: ltr; word-break: break-all; }
+  #playersBox h2, #gamesRow h2 { margin: 0 0 2vh; font-size: 3.4vh; }
+  #players { display: flex; flex-wrap: wrap; gap: 1.6vh; }
+  .chip { display: flex; align-items: center; gap: 1.2vh; padding: 1.3vh 2.2vh; border-radius: 99px; font-size: 3vh; font-weight: 700;
+    background: rgba(255,255,255,.1); }
+  .chip i { width: 2.6vh; height: 2.6vh; border-radius: 50%; display: inline-block; }
+  .chip.off { opacity: .35; }
+  .empty { font-size: 2.8vh; opacity: .6; }
+  #gamesRow { grid-column: 1 / -1; }
+  #games { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1.6vw; }
+  .g { padding: 1.6vh; border-radius: 2.4vh; background: rgba(255,255,255,.08); text-align: center; }
+  .g .ic { font-size: 5vh; }
+  .g b { display: block; font-size: 3vh; margin-top: .6vh; }
+  .g small { display: block; font-size: 1.9vh; opacity: .7; margin-top: .6vh; }
+  #status { position: fixed; bottom: .8vh; left: 1vw; font-size: 1.8vh; opacity: .55; direction: rtl; }
+</style>
+</head>
+<body>
+<canvas id="cv" width="1920" height="1080"></canvas>
+
+<div id="lobby">
+  <h1>🎮 <span>TV Party</span></h1>
+  <div id="joinBox" class="card">
+    <div class="big">סרקו עם הטלפון כדי להצטרף</div>
+    <div id="qr">טוען…</div>
+    <div class="big">או היכנסו לכתובת והקלידו את הקוד:</div>
+    <div id="code">----</div>
+    <div id="url"></div>
+  </div>
+  <div id="playersBox" class="card">
+    <h2>שחקנים</h2>
+    <div id="players"></div>
+    <p class="big" id="hostHint" style="margin-top:3vh"></p>
+  </div>
+  <div id="gamesRow">
+    <div id="games"></div>
+  </div>
+</div>
+<div id="status"></div>
+
+<script>
+'use strict';
+// ====================================================================== setup
+const W = 1920, H = 1080;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+const lobbyEl = $('lobby');
+
+const COLORS = ['#ff4d6d', '#4dabf7', '#51cf66', '#fcc419', '#cc5de8', '#ff922b', '#22b8cf', '#f783ac'];
+const params = new URLSearchParams(location.search);
+const LOCAL = params.has('local');            // test mode: BroadcastChannel instead of internet
+const PREFIX = 'tvparty-k3x-';
+const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+const randomCode = () => Array.from({ length: 4 }, () => ALPHA[Math.floor(Math.random() * ALPHA.length)]).join('');
+let code = (params.get('code') || randomCode()).toUpperCase();
+
+const players = new Map();   // id -> player
+let hostId = null;
+let state = 'lobby';         // lobby | game | results
+let current = null;
+let resultData = null, resultsUntil = 0, resultTitle = '';
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand = (a, b) => a + Math.random() * (b - a);
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const connected = () => [...players.values()].filter(p => p.connected);
+const cleanName = s => String(s || '').replace(/[<>&"]/g, '').trim().slice(0, 12) || 'שחקן';
+const nextColor = () => { const used = new Set([...players.values()].map(p => p.color)); return COLORS.find(c => !used.has(c)) || COLORS[players.size % COLORS.length]; };
+let botN = 0;
+const makeBot = name => ({ id: 'bot' + (++botN), name, color: '#adb5bd', bot: true, connected: false });
+function setStatus(s) { $('status').textContent = s; }
+
+// ====================================================================== network
+function loadScript(src) {
+  return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+}
+
+function startNet() {
+  if (LOCAL) {
+    const bc = new BroadcastChannel(PREFIX + code);
+    const sends = new Map();
+    bc.onmessage = e => {
+      const m = e.data; if (!m || m.to !== 'tv') return;
+      if (!sends.has(m.from)) sends.set(m.from, d => bc.postMessage({ to: m.from, from: 'tv', data: d }));
+      handleMsg(m.from, m.data, sends.get(m.from));
+    };
+    setStatus('מצב בדיקה מקומי');
+    return;
+  }
+  setStatus('מתחבר לשרת…');
+  loadScript('https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js').then(() => {
+    const peer = new Peer(PREFIX + code.toLowerCase(), { debug: 0 });
+    peer.on('open', () => setStatus('מוכן ✓'));
+    peer.on('error', err => {
+      if (err.type === 'unavailable-id') { peer.destroy(); code = randomCode(); renderLobby(); startNet(); }
+      else setStatus('שגיאת חיבור: ' + err.type);
+    });
+    peer.on('disconnected', () => { setStatus('מתחבר מחדש…'); try { peer.reconnect(); } catch (e) {} });
+    peer.on('connection', conn => {
+      let pid = null;
+      const send = d => { if (conn.open) conn.send(d); };
+      conn.on('data', d => { if (d && d.t === 'join') pid = String(d.id || '').slice(0, 40); handleMsg(pid, d, send); });
+      conn.on('close', () => dropPlayer(pid, send));
+      conn.on('error', () => dropPlayer(pid, send));
+    });
+  }).catch(() => setStatus('לא ניתן לטעון את רכיב החיבור – בדקו את האינטרנט'));
+}
+
+function handleMsg(pid, m, sendFn) {
+  if (!m || !pid) return;
+  if (m.t === 'join') {
+    let p = players.get(pid);
+    if (!p) {
+      if (connected().length >= 8) { sendFn({ t: 'full' }); return; }
+      p = { id: pid, name: cleanName(m.name), color: nextColor(), wins: 0 };
+      players.set(pid, p);
+    }
+    p.name = cleanName(m.name); p.send = sendFn; p.connected = true;
+    ensureHost();
+    sendFn({ t: 'welcome', color: p.color, name: p.name });
+    renderLobby(); syncControllers();
+    return;
+  }
+  const p = players.get(pid);
+  if (!p || !p.connected) return;
+  if (m.t === 'pick' && pid === hostId && state === 'lobby') startGame(m.game);
+  else if (m.t === 'quit' && pid === hostId && state !== 'lobby') backToLobby();
+  else if (m.t === 'in' && state === 'game' && current && current.cd <= 0) current.input(p, m);
+}
+
+function dropPlayer(pid, sendFn) {
+  const p = players.get(pid);
+  if (!p || p.send !== sendFn) return;
+  p.connected = false; p.send = null;
+  if (state === 'lobby') players.delete(pid);
+  ensureHost(); renderLobby(); syncControllers();
+}
+
+function ensureHost() {
+  const h = players.get(hostId);
+  if (!h || !h.connected) { const c = connected()[0]; hostId = c ? c.id : null; }
+}
+
+function send(p, obj) { if (p && p.connected && p.send) { try { p.send(obj); } catch (e) {} } }
+function sendUI(p, ui) { send(p, Object.assign({ t: 'ui', host: p.id === hostId, inGame: state !== 'lobby' }, ui)); }
+function syncControllers() { for (const p of connected()) sendUI(p, uiFor(p)); }
+function uiFor(p) {
+  if (state === 'lobby') {
+    if (p.id === hostId) return { ui: 'menu', games: GAMES.map(g => ({ id: g.id, name: g.name, icon: g.icon, desc: g.desc })) };
+    const h = players.get(hostId);
+    return { ui: 'wait', text: `${h ? h.name : 'המארח'} בוחר/ת משחק… 🎮` };
+  }
+  if (state === 'results') return { ui: 'wait', text: 'סוף המשחק! 🏆 תסתכלו על המסך' };
+  return (current && current.uiFor(p)) || { ui: 'wait', text: 'המשחק התחיל – הפעם אתם צופים 👀' };
+}
+
+// ====================================================================== lobby
+function renderLobby() {
+  $('code').textContent = code;
+  const base = location.href.split('?')[0].replace(/index\.html$/, '');
+  const joinUrl = base + 'play.html?code=' + code + (LOCAL ? '&local' : '');
+  $('url').textContent = joinUrl.replace(/^https?:\/\//, '').replace(/\?.*$/, '');
+  if (renderLobby.qrFor !== joinUrl) {
+    renderLobby.qrFor = joinUrl;
+    makeQR(joinUrl).then(src => { $('qr').innerHTML = src ? `<img alt="QR" src="${src}">` : 'אין QR – השתמשו בכתובת'; });
+  }
+  const box = $('players'); box.innerHTML = '';
+  const list = [...players.values()];
+  if (!list.length) box.innerHTML = '<div class="empty">עוד אין שחקנים… סרקו את הקוד 📱</div>';
+  for (const p of list) {
+    const d = document.createElement('div');
+    d.className = 'chip' + (p.connected ? '' : ' off');
+    d.innerHTML = `<i style="background:${p.color}"></i>${p.id === hostId ? '👑 ' : ''}${p.name}${p.wins ? ` · 🏆${p.wins}` : ''}`;
+    box.appendChild(d);
+  }
+  const h = players.get(hostId);
+  $('hostHint').textContent = h ? `👑 ${h.name} בוחר/ת את המשחק בטלפון` : '';
+  const gb = $('games');
+  if (!gb.childElementCount) for (const g of GAMES) {
+    const d = document.createElement('div'); d.className = 'g';
+    d.innerHTML = `<div class="ic">${g.icon}</div><b>${g.name}</b><small>${g.desc}</small>`;
+    gb.appendChild(d);
+  }
+}
+
+function makeQR(text) {
+  const draw = () => { try { const q = qrcode(0, 'M'); q.addData(text); q.make(); return q.createDataURL(10, 1); } catch (e) { return null; } };
+  if (window.qrcode) return Promise.resolve(draw());
+  return loadScript('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js').then(draw).catch(() => null);
+}
+
+// ====================================================================== game flow
+function startGame(id) {
+  const g = GAMES.find(x => x.id === id);
+  const ps = connected();
+  if (!g || !ps.length) return;
+  current = g.create(ps);
+  current.def = g; current.cd = 3.5;
+  state = 'game'; lobbyEl.hidden = true;
+  syncControllers();
+}
+
+function finishGame(ranking) {
+  state = 'results';
+  resultData = ranking; resultTitle = current.def.name;
+  resultsUntil = performance.now() + 8000;
+  const top = ranking[0];
+  if (top && top.p && !top.p.bot && players.has(top.p.id)) top.p.wins = (top.p.wins || 0) + 1;
+  ranking.forEach((r, i) => send(r.p, { t: 'buzz', ms: i === 0 ? [90, 60, 90, 60, 90] : 60 }));
+  syncControllers();
+}
+
+function backToLobby() {
+  state = 'lobby'; current = null;
+  for (const [id, p] of players) if (!p.connected) players.delete(id);
+  ensureHost();
+  lobbyEl.hidden = false;
+  renderLobby(); syncControllers();
+}
+
+let last = performance.now();
+function loop(t) {
+  const dt = Math.min(0.05, (t - last) / 1000); last = t;
+  if (state === 'game' && current) {
+    if (current.cd > 0) current.cd -= dt; else current.update(dt);
+    ctx.save(); current.draw(); ctx.restore();
+    if (current.cd > 0) drawCountdown(current.cd);
+    if (current.result) finishGame(current.result);
+  } else if (state === 'results') {
+    drawResults(t);
+    if (t > resultsUntil) backToLobby();
+  }
+  requestAnimationFrame(loop);
+}
+
+// ====================================================================== drawing helpers
+const FONT = '"Segoe UI", Roboto, Arial, sans-serif';
+function T(s, x, y, size, color = '#fff', align = 'center', weight = 700) {
+  ctx.font = `${weight} ${size}px ${FONT}`; ctx.fillStyle = color;
+  ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.direction = 'rtl';
+  ctx.fillText(String(s), x, y);
+}
+function bg(c1 = '#0b1026', c2 = '#1d2550') {
+  const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, c1); g.addColorStop(1, c2);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+function rrect(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function wrapLines(s, maxW, size, weight = 700) {
+  ctx.font = `${weight} ${size}px ${FONT}`;
+  const words = String(s).split(' '); const lines = []; let line = '';
+  for (const w of words) { const test = line ? line + ' ' + w : w; if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; } else line = test; }
+  if (line) lines.push(line);
+  return lines;
+}
+function chips(items, y) {   // items: [{p, text}]
+  ctx.font = `700 30px ${FONT}`;
+  const widths = items.map(it => ctx.measureText(`${it.p.name}  ${it.text}`).width + 70);
+  const total = widths.reduce((a, b) => a + b, 0) + (items.length - 1) * 18;
+  let x = W / 2 + total / 2;   // RTL: start from the right
+  items.forEach((it, i) => {
+    const w = widths[i]; x -= w;
+    ctx.globalAlpha = it.dim ? 0.35 : 1;
+    rrect(x, y - 28, w, 56, 28); ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fill();
+    ctx.fillStyle = it.p.color; ctx.beginPath(); ctx.arc(x + w - 30, y, 12, 0, Math.PI * 2); ctx.fill();
+    T(`${it.p.name}  ${it.text}`, x + w - 52, y, 30, '#fff', 'right');
+    ctx.globalAlpha = 1;
+    x -= 18;
+  });
+}
+function drawCountdown(cd) {
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(0, 0, W, H);
+  const n = Math.ceil(cd - 0.5);
+  const k = 1 + (cd % 1) * 0.35;
+  ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(k, k);
+  T(n > 0 ? n : 'יאללה!', 0, 0, n > 0 ? 260 : 190, '#fff');
+  ctx.restore();
+  T(current.def.icon + ' ' + current.def.name, W / 2, H / 2 + 230, 60, 'rgba(255,255,255,.85)');
+}
+function drawResults(t) {
+  bg('#1a1240', '#3b1d5e');
+  T('🏆 תוצאות – ' + resultTitle, W / 2, 130, 84);
+  const rows = resultData.slice(0, 8);
+  rows.forEach((r, i) => {
+    const y = 270 + i * 92, x = W / 2 - 520, w = 1040;
+    rrect(x, y - 38, w, 76, 38);
+    ctx.fillStyle = i === 0 ? 'rgba(252,196,25,.28)' : 'rgba(255,255,255,.09)'; ctx.fill();
+    T(['🥇', '🥈', '🥉'][i] || `${i + 1}.`, x + w - 50, y, 46, '#fff');
+    ctx.fillStyle = r.p.color; ctx.beginPath(); ctx.arc(x + w - 115, y, 16, 0, Math.PI * 2); ctx.fill();
+    T(r.p.name, x + w - 150, y, 42, '#fff', 'right');
+    T(r.label || '', x + 40, y, 36, 'rgba(255,255,255,.85)', 'left', 600);
+  });
+  T(`חוזרים ללובי בעוד ${Math.max(0, Math.ceil((resultsUntil - t) / 1000))}…`, W / 2, H - 60, 32, 'rgba(255,255,255,.6)');
+}
+
+// ====================================================================== GAME 1: light cycles
+function createTron(ps) {
+  const CW = 20, GW = 96, GH = 54, STEP = 0.075;
+  const D = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0] }, OPP = { u: 'd', d: 'u', l: 'r', r: 'l' };
+  const spawns = [[8, 14, 'r'], [87, 40, 'l'], [8, 40, 'r'], [87, 14, 'l'], [30, 5, 'd'], [65, 48, 'u'], [65, 5, 'd'], [30, 48, 'u']];
+  const list = ps.map(p => ({ p }));
+  if (list.length === 1) list.push({ p: makeBot('מחשב') });
+  const grid = new Int16Array(GW * GH).fill(-1);
+  list.forEach((c, i) => { const s = spawns[i]; Object.assign(c, { i, x: s[0], y: s[1], dir: s[2], next: s[2], alive: true }); grid[c.y * GW + c.x] = i; });
+  const humans = list.filter(c => !c.p.bot);
+  const free = (x, y) => x >= 0 && y >= 0 && x < GW && y < GH && grid[y * GW + x] < 0;
+  let acc = 0, time = 0; const deaths = [];
+
+  function botThink(c) {
+    const opts = ['u', 'd', 'l', 'r'].filter(d => d !== OPP[c.dir]);
+    const safe = (d, n) => { for (let k = 1; k <= n; k++) if (!free(c.x + D[d][0] * k, c.y + D[d][1] * k)) return false; return true; };
+    if (safe(c.dir, 3) && Math.random() > 0.05) return;
+    let pick = opts.filter(d => safe(d, 3));
+    if (!pick.length) pick = opts.filter(d => safe(d, 1));
+    if (pick.length) c.next = pick[Math.floor(Math.random() * pick.length)];
+  }
+
+  function tick() {
+    const alive = list.filter(c => c.alive);
+    alive.forEach(c => { if (c.p.bot) botThink(c); c.dir = c.next; c.nx = c.x + D[c.dir][0]; c.ny = c.y + D[c.dir][1]; });
+    const dying = new Set();
+    alive.forEach(c => { if (!free(c.nx, c.ny)) dying.add(c); });
+    for (let a = 0; a < alive.length; a++) for (let b = a + 1; b < alive.length; b++)
+      if (alive[a].nx === alive[b].nx && alive[a].ny === alive[b].ny) { dying.add(alive[a]); dying.add(alive[b]); }
+    alive.forEach(c => {
+      if (dying.has(c)) { c.alive = false; c.deathT = time; deaths.push(c); send(c.p, { t: 'buzz', ms: 250 }); }
+      else { c.x = c.nx; c.y = c.ny; grid[c.y * GW + c.x] = c.i; }
+    });
+    const still = list.filter(c => c.alive);
+    if (still.length <= 1 || humans.every(c => !c.alive)) {
+      const order = [...still, ...deaths.slice().reverse()].filter(c => !c.p.bot);
+      g.result = order.map(c => ({ p: c.p, label: c.alive ? 'שרד/ה עד הסוף! 🏁' : `שרד/ה ${c.deathT.toFixed(1)} שניות` }));
+    }
+  }
+
+  const g = {
+    uiFor: p => list.some(c => c.p === p) ? { ui: 'dpad' } : null,
+    input(p, m) { const c = list.find(c => c.p === p); if (c && c.alive && D[m.d] && m.d !== OPP[c.dir]) c.next = m.d; },
+    update(dt) { time += dt; acc += dt; while (acc >= STEP && !g.result) { acc -= STEP; tick(); } },
+    draw() {
+      bg('#05070f', '#0b1530');
+      ctx.strokeStyle = 'rgba(80,140,255,.07)'; ctx.lineWidth = 1;
+      for (let x = 0; x <= GW; x += 4) { ctx.beginPath(); ctx.moveTo(x * CW, 0); ctx.lineTo(x * CW, H); ctx.stroke(); }
+      for (let y = 0; y <= GH; y += 4) { ctx.beginPath(); ctx.moveTo(0, y * CW); ctx.lineTo(W, y * CW); ctx.stroke(); }
+      for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+        const o = grid[y * GW + x]; if (o < 0) continue;
+        const c = list[o]; ctx.fillStyle = c.p.color; ctx.globalAlpha = c.alive ? 0.8 : 0.3;
+        ctx.fillRect(x * CW + 2, y * CW + 2, CW - 4, CW - 4);
+      }
+      ctx.globalAlpha = 1;
+      for (const c of list) {
+        if (!c.alive) continue;
+        ctx.shadowColor = c.p.color; ctx.shadowBlur = 25; ctx.fillStyle = '#fff';
+        ctx.fillRect(c.x * CW, c.y * CW, CW, CW); ctx.shadowBlur = 0;
+        if (time < 3) T(c.p.name, c.x * CW + CW / 2, c.y * CW - 22, 30, c.p.color);
+      }
+      ctx.strokeStyle = 'rgba(120,170,255,.6)'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6);
+    },
+  };
+  return g;
+}
+
+// ====================================================================== GAME 2: pong
+function createPong(ps) {
+  const humans = ps.slice(0, 4);
+  const pads = [];
+  const mk = (p, side, idx) => ({ p, side, x: side === 'L' ? (idx ? 260 : 70) : (idx ? W - 260 : W - 70), y: H / 2, ty: H / 2, h: 210 });
+  const L = humans.filter((_, i) => i % 2 === 0), R = humans.filter((_, i) => i % 2 === 1);
+  L.forEach((p, i) => pads.push(mk(p, 'L', i)));
+  R.forEach((p, i) => pads.push(mk(p, 'R', i)));
+  if (!R.length) pads.push(mk(makeBot('מחשב'), 'R', 0));
+  const score = { L: 0, R: 0 }, TARGET = 5;
+  let ball, serveT = 0, flash = 0;
+  function serve(dir) { const a = rand(-0.45, 0.45); ball = { x: W / 2, y: H / 2, vx: Math.cos(a) * 680 * dir, vy: Math.sin(a) * 680, r: 17 }; serveT = 1.1; }
+  serve(Math.random() < 0.5 ? 1 : -1);
+  function point(side) {
+    score[side]++; flash = 0.6;
+    pads.forEach(pd => send(pd.p, { t: 'buzz', ms: pd.side === side ? 80 : 200 }));
+    if (score[side] >= TARGET) {
+      const win = pads.filter(pd => pd.side === side), lose = pads.filter(pd => pd.side !== side);
+      const txt = `${score.L} : ${score.R}`;
+      g.result = [...win.map(pd => ({ p: pd.p, label: 'ניצחון ' + txt })), ...lose.map(pd => ({ p: pd.p, label: 'הפסד ' + txt }))].filter(r => !r.p.bot);
+      if (!g.result.length || g.result[0].label.startsWith('הפסד')) g.result.unshift({ p: { name: 'המחשב', color: '#adb5bd', bot: true }, label: 'ניצחון ' + txt });
+      return;
+    }
+    serve(side === 'L' ? -1 : 1);
+  }
+  const g = {
+    uiFor(p) { const pd = pads.find(pd => pd.p === p); return pd ? { ui: 'slider', text: pd.side === 'L' ? 'אתם בצד שמאל ⬅️' : 'אתם בצד ימין ➡️' } : null; },
+    input(p, m) { if (typeof m.v !== 'number') return; pads.filter(pd => pd.p === p).forEach(pd => pd.ty = clamp(m.v, 0, 1) * (H - pd.h) + pd.h / 2); },
+    update(dt) {
+      flash = Math.max(0, flash - dt);
+      for (const pd of pads) {
+        if (pd.p.bot) { const target = ball.vx > 0 ? ball.y : H / 2; const max = 520 * dt; pd.y += clamp(target - pd.y, -max, max); }
+        else pd.y += (pd.ty - pd.y) * Math.min(1, dt * 20);
+        pd.y = clamp(pd.y, pd.h / 2, H - pd.h / 2);
+      }
+      if (serveT > 0) { serveT -= dt; return; }
+      ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+      if (ball.y < ball.r) { ball.y = ball.r; ball.vy = Math.abs(ball.vy); }
+      if (ball.y > H - ball.r) { ball.y = H - ball.r; ball.vy = -Math.abs(ball.vy); }
+      for (const pd of pads) {
+        const dir = pd.side === 'L' ? 1 : -1;
+        if (Math.sign(ball.vx) === dir) continue;
+        if (Math.abs(ball.x - pd.x) < 14 + ball.r && Math.abs(ball.y - pd.y) < pd.h / 2 + ball.r) {
+          const off = clamp((ball.y - pd.y) / (pd.h / 2), -1, 1);
+          const sp = Math.min(1900, Math.hypot(ball.vx, ball.vy) * 1.07);
+          ball.vx = Math.cos(off * 0.95) * sp * dir; ball.vy = Math.sin(off * 0.95) * sp;
+          ball.x = pd.x + dir * (14 + ball.r);
+          send(pd.p, { t: 'buzz', ms: 30 });
+        }
+      }
+      if (ball.x < -60) point('R'); else if (ball.x > W + 60) point('L');
+    },
+    draw() {
+      bg('#06121f', '#0d2b3e');
+      if (flash > 0) { ctx.fillStyle = `rgba(255,255,255,${flash * 0.25})`; ctx.fillRect(0, 0, W, H); }
+      ctx.setLineDash([24, 26]); ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke(); ctx.setLineDash([]);
+      T(score.L, W / 2 - 160, 120, 140, 'rgba(255,255,255,.85)');
+      T(score.R, W / 2 + 160, 120, 140, 'rgba(255,255,255,.85)');
+      for (const pd of pads) {
+        ctx.shadowColor = pd.p.color; ctx.shadowBlur = 30; ctx.fillStyle = pd.p.color;
+        rrect(pd.x - 14, pd.y - pd.h / 2, 28, pd.h, 14); ctx.fill(); ctx.shadowBlur = 0;
+        T(pd.p.name, pd.x + (pd.side === 'L' ? 30 : -30), pd.y - pd.h / 2 - 26, 28, pd.p.color, pd.side === 'L' ? 'left' : 'right');
+      }
+      if (serveT <= 0 || Math.floor(serveT * 6) % 2 === 0) {
+        ctx.shadowColor = '#fff'; ctx.shadowBlur = 30; ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+      }
+      T(`ראשון ל-${TARGET} מנצח`, W / 2, H - 40, 28, 'rgba(255,255,255,.45)');
+    },
+  };
+  return g;
+}
+
+// ====================================================================== GAME 3: trivia
+const QUESTIONS = [
+  ['מהי עיר הבירה של אוסטרליה?', 'קנברה', 'סידני', 'מלבורן', 'פרת׳'],
+  ['כמה רגליים יש לעכביש?', '8', '6', '10', '12'],
+  ['מהו כוכב הלכת הגדול ביותר במערכת השמש?', 'צדק', 'שבתאי', 'נפטון', 'כדור הארץ'],
+  ['איזה יסוד כימי מסומן באות O?', 'חמצן', 'זהב', 'אוסמיום', 'מימן'],
+  ['כמה דקות יש ביממה?', '1,440', '1,240', '1,600', '960'],
+  ['מי צייר את המונה ליזה?', 'לאונרדו דה וינצ׳י', 'מיכלאנג׳לו', 'פיקאסו', 'ואן גוך'],
+  ['מהו האוקיינוס הגדול בעולם?', 'האוקיינוס השקט', 'האוקיינוס האטלנטי', 'האוקיינוס ההודי', 'אוקיינוס הקרח הצפוני'],
+  ['באיזו שנה הוכרזה מדינת ישראל?', '1948', '1949', '1947', '1967'],
+  ['מהו ההר הגבוה בעולם?', 'אוורסט', 'קילימנג׳רו', 'מון בלאן', 'K2'],
+  ['כמה צלעות יש למשושה?', '6', '5', '7', '8'],
+  ['מהי היבשת הגדולה בעולם?', 'אסיה', 'אפריקה', 'אמריקה הצפונית', 'אירופה'],
+  ['מהו היונק הגדול ביותר בעולם?', 'הלוויתן הכחול', 'הפיל האפריקני', 'הג׳ירפה', 'הכריש הלבן'],
+  ['באיזו שפה מדברים רוב תושבי ברזיל?', 'פורטוגזית', 'ספרדית', 'ברזילאית', 'אנגלית'],
+  ['כמה שחקנים יש לכל קבוצה על מגרש כדורגל?', '11', '10', '9', '12'],
+  ['כמה מעלות צלזיוס היא נקודת הרתיחה של מים בגובה פני הים?', '100', '90', '120', '80'],
+  ['מי כתב את "רומיאו ויוליה"?', 'שייקספיר', 'דיקנס', 'הומרוס', 'טולסטוי'],
+  ['מהי המדינה הגדולה בעולם בשטחה?', 'רוסיה', 'קנדה', 'סין', 'ארצות הברית'],
+  ['כמה זה 7 כפול 8?', '56', '54', '64', '48'],
+  ['איזה צבע מתקבל מערבוב כחול וצהוב?', 'ירוק', 'סגול', 'כתום', 'חום'],
+  ['מהו המטבע של יפן?', 'ין', 'יואן', 'וון', 'רופי'],
+  ['כמה שניות יש בשעה?', '3,600', '6,000', '360', '1,200'],
+  ['באיזו מדינה נמצאות הפירמידות של גיזה?', 'מצרים', 'מקסיקו', 'ירדן', 'סודן'],
+  ['מהו האיבר הגדול ביותר בגוף האדם?', 'העור', 'הכבד', 'הריאות', 'המוח'],
+  ['כמה ימים יש בשנה מעוברת?', '366', '365', '364', '367'],
+  ['איזה גז צמחים קולטים מהאוויר לצורך פוטוסינתזה?', 'פחמן דו-חמצני', 'חמצן', 'חנקן', 'הליום'],
+  ['מהו הכוכב הקרוב ביותר לכדור הארץ?', 'השמש', 'פרוקסימה קנטאורי', 'סיריוס', 'כוכב הצפון'],
+  ['כמה מיתרים יש לגיטרה רגילה?', '6', '4', '5', '8'],
+  ['מהו המקום הנמוך ביותר ביבשה בעולם?', 'ים המלח', 'עמק המוות', 'הכנרת', 'הים הכספי'],
+  ['איזה כוכב לכת מכונה "הכוכב האדום"?', 'מאדים', 'נוגה', 'צדק', 'כוכב חמה'],
+  ['מהי עיר הבירה של איטליה?', 'רומא', 'מילאנו', 'ונציה', 'נאפולי'],
+  ['כמה צבעים יש בקשת בענן?', '7', '5', '6', '9'],
+  ['מהו בעל החיים היבשתי המהיר ביותר?', 'ברדלס', 'אריה', 'סוס', 'צבי'],
+];
+const QCOL = ['#e03131', '#1971c2', '#f08c00', '#2f9e44'];
+const QSHAPE = ['▲', '◆', '●', '■'];
+
+function createQuiz(ps) {
+  const QT = 15;
+  const qs = shuffle(QUESTIONS.slice()).slice(0, 8).map(([q, c, ...w]) => { const opts = shuffle([c, ...w]); return { q, opts, ans: opts.indexOf(c) }; });
+  const scores = new Map(ps.map(p => [p, 0]));
+  let i = 0, phase = 'q', t = 0, answers = new Map();
+  const everyoneAnswered = () => [...scores.keys()].filter(p => p.connected).every(p => answers.has(p));
+  function reveal() {
+    phase = 'r'; t = 0;
+    for (const [p, a] of answers) scores.set(p, scores.get(p) + a.pts);
+    for (const p of scores.keys()) { sendUI(p, g.uiFor(p)); const a = answers.get(p); send(p, { t: 'buzz', ms: a && a.pts ? [50, 40, 50] : 200 }); }
+  }
+  function next() {
+    i++;
+    if (i >= qs.length) { g.result = [...scores].sort((a, b) => b[1] - a[1]).map(([p, s]) => ({ p, label: `${s.toLocaleString()} נק׳` })); return; }
+    phase = 'q'; t = 0; answers = new Map();
+    for (const p of scores.keys()) sendUI(p, g.uiFor(p));
+  }
+  const g = {
+    uiFor(p) {
+      if (!scores.has(p)) return null;
+      const Q = qs[i];
+      if (phase === 'q') return answers.has(p) ? { ui: 'wait', text: 'ענית! ⏳ מחכים לשאר…' } : { ui: 'buttons4', labels: Q.opts, title: `שאלה ${i + 1} מתוך ${qs.length}` };
+      const a = answers.get(p);
+      return { ui: 'wait', text: !a ? '⌛ לא הספקת לענות' : a.a === Q.ans ? `✅ נכון! +${a.pts}` : '❌ לא נכון' };
+    },
+    input(p, m) {
+      if (phase !== 'q' || !scores.has(p) || answers.has(p)) return;
+      const a = m.a | 0; if (a < 0 || a > 3) return;
+      const pts = a === qs[i].ans ? Math.round(500 + 500 * Math.max(0, (QT - t) / QT)) : 0;
+      answers.set(p, { a, pts });
+      sendUI(p, g.uiFor(p));
+      if (everyoneAnswered()) reveal();
+    },
+    update(dt) { t += dt; if (phase === 'q' && t >= QT) reveal(); else if (phase === 'r' && t >= 4.5) next(); },
+    draw() {
+      bg('#24104a', '#4a1c6b');
+      const Q = qs[i];
+      T(`שאלה ${i + 1} מתוך ${qs.length}`, W / 2, 60, 34, 'rgba(255,255,255,.7)');
+      const lines = wrapLines(Q.q, 1600, 70);
+      lines.forEach((ln, k) => T(ln, W / 2, 170 + k * 84 - (lines.length - 1) * 42, 70));
+      if (phase === 'q') {
+        const frac = clamp(1 - t / QT, 0, 1);
+        rrect(160, 300, 1600, 22, 11); ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fill();
+        rrect(160 + 1600 * (1 - frac), 300, 1600 * frac, 22, 11); ctx.fillStyle = frac > 0.3 ? '#51cf66' : '#ff6b6b'; ctx.fill();
+      }
+      for (let k = 0; k < 4; k++) {
+        const col = k % 2, row = k >> 1;
+        const w = 780, h = 230, x = W / 2 + 10 + (col === 0 ? 0 : -(w + 20)), y = 370 + row * (h + 24);
+        const correct = k === Q.ans;
+        ctx.globalAlpha = phase === 'r' && !correct ? 0.3 : 1;
+        rrect(x, y, w, h, 28); ctx.fillStyle = QCOL[k]; ctx.fill();
+        if (phase === 'r' && correct) { ctx.lineWidth = 10; ctx.strokeStyle = '#fff'; ctx.stroke(); }
+        T(QSHAPE[k], x + w - 60, y + h / 2, 60, 'rgba(255,255,255,.9)');
+        const ol = wrapLines(Q.opts[k], w - 170, 52);
+        ol.slice(0, 2).forEach((ln, j) => T(ln, x + w - 120, y + h / 2 + (j - (Math.min(ol.length, 2) - 1) / 2) * 60, 52, '#fff', 'right'));
+        if (phase === 'r') {
+          const who = [...answers].filter(([, a]) => a.a === k).map(([p]) => p);
+          who.forEach((p, j) => { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(x + 40 + j * 44, y + h - 36, 17, 0, Math.PI * 2); ctx.fill(); });
+        }
+        ctx.globalAlpha = 1;
+      }
+      chips([...scores].map(([p, s]) => ({ p, text: phase === 'q' ? (answers.has(p) ? '✔' : '…') : s.toLocaleString(), dim: !p.connected })), H - 50);
+    },
+  };
+  return g;
+}
+
+// ====================================================================== GAME 4: reaction
+function createReact(ps) {
+  const ROUNDS = 6;
+  const sc = new Map(ps.map(p => [p, { pts: 0, best: null }]));
+  let round = 0, phase = 'wait', t = 0, goAt = rand(1.8, 4.5), winner = null, early = new Set(), times = new Map();
+  const eligible = () => [...sc.keys()].filter(p => p.connected && !early.has(p));
+  function newRound() { phase = 'wait'; t = 0; goAt = rand(1.8, 4.5); winner = null; early = new Set(); times = new Map(); }
+  const g = {
+    uiFor: p => sc.has(p) ? { ui: 'tap' } : null,
+    input(p) {
+      if (!sc.has(p)) return;
+      if (phase === 'wait') { if (!early.has(p)) { early.add(p); send(p, { t: 'buzz', ms: 300 }); } return; }
+      if (phase !== 'go' || early.has(p) || times.has(p)) return;
+      const ms = Math.round(t * 1000); times.set(p, ms);
+      const s = sc.get(p); if (s.best === null || ms < s.best) s.best = ms;
+      if (!winner) { winner = p; s.pts++; send(p, { t: 'buzz', ms: [60, 40, 60] }); }
+      if (eligible().every(q => times.has(q))) { phase = 'res'; t = 0; }
+    },
+    update(dt) {
+      t += dt;
+      if (phase === 'wait' && t >= goAt) { phase = 'go'; t = 0; }
+      else if (phase === 'go' && t > 2.5) { phase = 'res'; t = 0; }
+      else if (phase === 'res' && t > 2.8) {
+        round++;
+        if (round >= ROUNDS) g.result = [...sc].sort((a, b) => b[1].pts - a[1].pts || (a[1].best ?? 1e9) - (b[1].best ?? 1e9))
+          .map(([p, s]) => ({ p, label: `${s.pts} ניצחונות · שיא ${s.best === null ? '–' : s.best + 'ms'}` }));
+        else newRound();
+      }
+    },
+    draw() {
+      if (phase === 'wait') {
+        bg('#5c0f1a', '#8a1426');
+        T('חכו לירוק…', W / 2, H / 2 - 40, 150);
+        T('מי שלוחץ מוקדם – נפסל בסיבוב', W / 2, H / 2 + 100, 44, 'rgba(255,255,255,.7)');
+      } else if (phase === 'go') {
+        bg('#1b8a3a', '#2fbf5a');
+        T('עכשיו! 👆', W / 2, H / 2 - 20, 220);
+      } else {
+        bg('#13203d', '#1f3460');
+        T(winner ? `⚡ ${winner.name} הכי מהיר/ה!` : 'אף אחד לא לחץ 😴', W / 2, 220, 100, winner ? winner.color : '#fff');
+        const rows = [...sc.keys()].map(p => ({ p, ms: times.get(p), early: early.has(p) }))
+          .sort((a, b) => (a.ms ?? 1e9) - (b.ms ?? 1e9));
+        rows.slice(0, 8).forEach((r, k) => T(`${r.p.name}: ${r.early ? 'מוקדם מדי! 🚫' : r.ms != null ? r.ms + 'ms' : '—'}`, W / 2, 360 + k * 70, 46, r.p.color));
+      }
+      T(`סיבוב ${Math.min(round + 1, ROUNDS)} מתוך ${ROUNDS}`, W / 2, 60, 34, 'rgba(255,255,255,.75)');
+      chips([...sc].map(([p, s]) => ({ p, text: '⚡' + s.pts, dim: early.has(p) && phase !== 'res' })), H - 50);
+    },
+  };
+  return g;
+}
+
+// ====================================================================== GAME 5: sumo
+function createSumo(ps) {
+  const C = { x: W / 2, y: H / 2 + 40 }, R0 = 430, RB = 46;
+  let R = R0;
+  const list = ps.map(p => ({ p }));
+  const solo = list.length === 1;
+  if (solo) list.push({ p: makeBot('בוט 1') }, { p: makeBot('בוט 2') });
+  const humans = list.filter(c => !c.p.bot);
+  const wins = new Map(humans.map(c => [c, 0]));
+  const NEED = 2, MAXR = solo ? 3 : 5;
+  let round = 1, phase = 'play', t = 0, roundWinner = null;
+  function reset() {
+    R = R0; phase = 'play'; t = 0; roundWinner = null;
+    list.forEach((c, i) => { const a = i / list.length * Math.PI * 2 - Math.PI / 2; Object.assign(c, { x: C.x + Math.cos(a) * R * 0.62, y: C.y + Math.sin(a) * R * 0.62, vx: 0, vy: 0, ix: 0, iy: 0, alive: true, fall: 0, dashCd: 0 }); });
+  }
+  reset();
+  function bot(c) {
+    const others = list.filter(o => o !== c && o.alive);
+    let tx = C.x, ty = C.y;
+    const dc = Math.hypot(c.x - C.x, c.y - C.y);
+    if (dc < R * 0.68 && others.length) { const o = others.reduce((a, b) => Math.hypot(a.x - c.x, a.y - c.y) < Math.hypot(b.x - c.x, b.y - c.y) ? a : b); tx = o.x; ty = o.y; }
+    const dx = tx - c.x, dy = ty - c.y, l = Math.hypot(dx, dy) || 1;
+    c.ix = dx / l * 0.8; c.iy = dy / l * 0.8;
+    if (l < 220 && c.dashCd <= 0 && Math.random() < 0.03) dash(c);
+  }
+  function dash(c) {
+    let dx = c.ix, dy = c.iy, l = Math.hypot(dx, dy);
+    if (l < 0.2) { dx = c.vx; dy = c.vy; l = Math.hypot(dx, dy); }
+    if (l < 0.01) return;
+    c.vx += dx / l * 760; c.vy += dy / l * 760; c.dashCd = 1.6;
+  }
+  function endRound(w) {
+    phase = 'between'; t = 0; roundWinner = w;
+    if (w && wins.has(w)) wins.set(w, wins.get(w) + 1);
+  }
+  const g = {
+    uiFor: p => list.some(c => c.p === p) ? { ui: 'joystick' } : null,
+    input(p, m) {
+      const c = list.find(c => c.p === p); if (!c) return;
+      if (typeof m.x === 'number' && typeof m.y === 'number') { c.ix = clamp(m.x, -1, 1); c.iy = clamp(m.y, -1, 1); }
+      if (m.dash && c.alive && c.dashCd <= 0 && phase === 'play') dash(c);
+    },
+    update(dt) {
+      t += dt;
+      for (const c of list) if (!c.alive && c.fall > 0) c.fall = Math.max(0, c.fall - dt * 1.8);
+      if (phase === 'between') {
+        if (t > 2.8) {
+          const best = Math.max(...wins.values());
+          if ((!solo && best >= NEED) || round >= MAXR) {
+            g.result = [...wins].sort((a, b) => b[1] - a[1]).map(([c, w]) => ({ p: c.p, label: `${w} ${w === 1 ? 'סיבוב' : 'סיבובים'}${solo ? ` מתוך ${MAXR}` : ''}` }));
+          } else { round++; reset(); }
+        }
+        return;
+      }
+      if (t > 14) R = Math.max(230, R - dt * 14);
+      for (const c of list) {
+        if (!c.alive) continue;
+        if (c.p.bot) bot(c);
+        c.dashCd -= dt;
+        c.vx += c.ix * 1500 * dt; c.vy += c.iy * 1500 * dt;
+        const damp = Math.exp(-1.7 * dt); c.vx *= damp; c.vy *= damp;
+        const sp = Math.hypot(c.vx, c.vy); if (sp > 1150) { c.vx *= 1150 / sp; c.vy *= 1150 / sp; }
+        c.x += c.vx * dt; c.y += c.vy * dt;
+      }
+      const al = list.filter(c => c.alive);
+      for (let a = 0; a < al.length; a++) for (let b = a + 1; b < al.length; b++) {
+        const A = al[a], B = al[b]; const dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy);
+        if (d > 0 && d < RB * 2) {
+          const nx = dx / d, ny = dy / d, ov = RB * 2 - d;
+          A.x -= nx * ov / 2; A.y -= ny * ov / 2; B.x += nx * ov / 2; B.y += ny * ov / 2;
+          const rv = (B.vx - A.vx) * nx + (B.vy - A.vy) * ny;
+          if (rv < 0) {
+            const j = -(1 + 1.3) * rv / 2;
+            A.vx -= j * nx; A.vy -= j * ny; B.vx += j * nx; B.vy += j * ny;
+            if (-rv > 250) { send(A.p, { t: 'buzz', ms: 40 }); send(B.p, { t: 'buzz', ms: 40 }); }
+          }
+        }
+      }
+      for (const c of al) if (Math.hypot(c.x - C.x, c.y - C.y) > R) { c.alive = false; c.fall = 1; send(c.p, { t: 'buzz', ms: 300 }); }
+      const still = list.filter(c => c.alive);
+      if (solo) {
+        if (!humans[0].alive) endRound(null);
+        else if (still.length === 1) endRound(humans[0]);
+      } else if (still.length <= 1) endRound(still[0] || null);
+    },
+    draw() {
+      bg('#1a0f0a', '#3a2214');
+      const grd = ctx.createRadialGradient(C.x, C.y, 40, C.x, C.y, R);
+      grd.addColorStop(0, '#f1d9a8'); grd.addColorStop(1, '#c99a5b');
+      ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(C.x, C.y, R, 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = 14; ctx.strokeStyle = '#fff3'; ctx.stroke();
+      ctx.lineWidth = 8; ctx.strokeStyle = R < R0 ? '#ff6b6b' : '#8a5a2b'; ctx.beginPath(); ctx.arc(C.x, C.y, R, 0, Math.PI * 2); ctx.stroke();
+      for (const c of list) {
+        if (!c.alive && c.fall <= 0) continue;
+        const s = c.alive ? 1 : c.fall;
+        ctx.globalAlpha = c.alive ? 1 : c.fall;
+        ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(c.x, c.y + RB * 0.75 * s, RB * s, RB * 0.35 * s, 0, 0, Math.PI * 2); ctx.fill();
+        const gg = ctx.createRadialGradient(c.x - 14 * s, c.y - 16 * s, 4, c.x, c.y, RB * s);
+        gg.addColorStop(0, '#fff'); gg.addColorStop(0.25, c.p.color); gg.addColorStop(1, c.p.color);
+        ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(c.x, c.y, RB * s, 0, Math.PI * 2); ctx.fill();
+        if (c.alive && c.dashCd > 1.2) { ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.stroke(); }
+        T(c.p.name, c.x, c.y - RB - 24, 28, '#fff');
+        ctx.globalAlpha = 1;
+      }
+      T(`סיבוב ${round}${solo ? ` מתוך ${MAXR}` : ''}`, W / 2, 50, 36, 'rgba(255,255,255,.8)');
+      chips([...wins].map(([c, w]) => ({ p: c.p, text: '🏆' + w, dim: !c.alive })), H - 45);
+      if (phase === 'between') {
+        ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(0, 0, W, H);
+        T(roundWinner ? `💥 ${roundWinner.p.name} ניצח/ה בסיבוב!` : (solo ? 'נפלת! 😵' : 'תיקו!'), W / 2, H / 2, 110, roundWinner ? roundWinner.p.color : '#fff');
+      }
+    },
+  };
+  return g;
+}
+
+// ====================================================================== registry
+const GAMES = [
+  { id: 'tron', name: 'אופנועי אור', icon: '🏍️', desc: 'אל תתנגשו בקירות ובשובל · 1–8', create: createTron },
+  { id: 'pong', name: 'פונג', icon: '🏓', desc: 'מזיזים את המחבט עם האצבע · 1–4', create: createPong },
+  { id: 'quiz', name: 'טריוויה', icon: '🧠', desc: 'מי עונה נכון והכי מהר · 1–8', create: createQuiz },
+  { id: 'react', name: 'הכי מהיר', icon: '⚡', desc: 'לוחצים ברגע שהמסך ירוק · 1–8', create: createReact },
+  { id: 'sumo', name: 'סומו', icon: '💥', desc: 'דוחפים את כולם מהזירה · 1–8', create: createSumo },
+];
+
+renderLobby();
+startNet();
+requestAnimationFrame(loop);
+try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+</script>
+</body>
+</html>

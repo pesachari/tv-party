@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b1026">
+<title>TV Party – שלט</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #0b1026; color: #fff; overscroll-behavior: none;
+    font-family: system-ui, "Segoe UI", Roboto, Arial, sans-serif; -webkit-user-select: none; user-select: none; }
+  body { display: flex; flex-direction: column; height: 100dvh; }
+  button { font: inherit; color: inherit; border: 0; cursor: pointer; }
+
+  /* join screen */
+  #join { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 16px; padding: 28px;
+    background: radial-gradient(circle at 30% 0%, #2b2f7a, #0b1026 70%); }
+  #join h1 { margin: 0 0 8px; font-size: 40px; text-align: center; }
+  #join label { font-size: 15px; opacity: .75; }
+  #join input { width: 100%; font: inherit; font-size: 22px; padding: 14px 16px; border-radius: 14px; border: 2px solid #ffffff22;
+    background: #ffffff10; color: #fff; outline: none; -webkit-user-select: text; user-select: text; }
+  #join input:focus { border-color: #4dabf7; }
+  #codeIn { text-transform: uppercase; letter-spacing: .3em; text-align: center; direction: ltr; font-weight: 800; }
+  .primary { padding: 18px; border-radius: 16px; font-size: 22px; font-weight: 800; background: linear-gradient(90deg, #4dabf7, #845ef7); }
+  #joinMsg { min-height: 24px; text-align: center; color: #ffa8a8; }
+
+  /* controller */
+  #app { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #app[hidden], #join[hidden] { display: none; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #ffffff0d; }
+  header i { width: 18px; height: 18px; border-radius: 50%; }
+  header b { flex: 1; font-size: 18px; }
+  #quit { padding: 8px 14px; border-radius: 10px; background: #ffffff1a; font-size: 15px; }
+  #pad { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px; gap: 12px; touch-action: none; }
+  .msg { flex: 1; display: grid; place-items: center; text-align: center; font-size: 26px; font-weight: 700; padding: 20px; line-height: 1.4; }
+
+  .menu { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; touch-action: pan-y; }
+  .menu h2 { margin: 4px 0; font-size: 22px; }
+  .game { display: flex; align-items: center; gap: 14px; text-align: right; padding: 14px 16px; border-radius: 16px; background: #ffffff14; }
+  .game:active { background: #ffffff2a; transform: scale(.98); }
+  .game .ic { font-size: 38px; }
+  .game b { display: block; font-size: 21px; }
+  .game small { display: block; opacity: .7; font-size: 14px; margin-top: 2px; }
+
+  .dpad { flex: 1; display: grid; grid-template: 1fr 1fr 1fr / 1fr 1fr 1fr; gap: 10px; direction: ltr; max-height: 520px; margin: auto 0; aspect-ratio: 1; align-self: center; width: min(100%, 520px); }
+  .dpad button { border-radius: 22px; background: #ffffff1c; font-size: 48px; }
+  .dpad button:active, .dpad button.hit { background: #4dabf7; }
+
+  .slider { flex: 1; position: relative; border-radius: 28px; background: linear-gradient(#ffffff10, #ffffff22); overflow: hidden; }
+  .slider .knob { position: absolute; left: 10%; right: 10%; height: 18%; border-radius: 20px; transform: translateY(-50%); top: 50%; box-shadow: 0 0 30px #0008; }
+  .hint { text-align: center; opacity: .75; font-size: 17px; }
+
+  .b4 { flex: 1; display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: 12px; }
+  .b4 button { border-radius: 22px; font-size: 20px; font-weight: 700; padding: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; line-height: 1.25; }
+  .b4 button span { font-size: 34px; }
+  .b4 button:active { filter: brightness(1.25); transform: scale(.97); }
+  .b4 button:disabled { opacity: .35; }
+
+  .tap { flex: 0 0 auto; border-radius: 50%; aspect-ratio: 1; width: min(82vw, 52vh); height: auto; align-self: center; margin: auto;
+    background: radial-gradient(circle at 35% 30%, #ff8787, #e03131 60%, #a51111); font-size: 44px; font-weight: 900; box-shadow: 0 14px 0 #7a0c0c; }
+  .tap:active, .tap.hit { transform: translateY(10px); box-shadow: 0 4px 0 #7a0c0c; }
+
+  .joy { flex: 1; display: flex; gap: 16px; align-items: center; justify-content: center; }
+  @media (orientation: portrait) { .joy { flex-direction: column; } }
+  .base { position: relative; width: min(78vw, 52vh); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(#ffffff10, #ffffff26); border: 3px solid #ffffff30; touch-action: none; }
+  .stick { position: absolute; width: 40%; height: 40%; left: 30%; top: 30%; border-radius: 50%; box-shadow: 0 6px 20px #0009; }
+  .dash { width: min(40vw, 26vh); aspect-ratio: 1; border-radius: 50%; font-size: 24px; font-weight: 900; background: radial-gradient(circle at 35% 30%, #ffd43b, #f08c00); color: #3b2300; }
+  .dash:active, .dash.hit { transform: scale(.94); filter: brightness(1.2); }
+</style>
+</head>
+<body>
+
+<div id="join">
+  <h1>🎮 TV Party</h1>
+  <label for="nameIn">השם שלך</label>
+  <input id="nameIn" maxlength="12" autocomplete="nickname" placeholder="למשל: דני">
+  <label for="codeIn">הקוד שמופיע בטלוויזיה</label>
+  <input id="codeIn" maxlength="4" autocomplete="off" inputmode="latin" placeholder="ABCD">
+  <button class="primary" id="joinBtn">הצטרפות 🚀</button>
+  <div id="joinMsg"></div>
+</div>
+
+<div id="app" hidden>
+  <header><i id="dot"></i><b id="me"></b><button id="quit" hidden>⏹ חזרה לתפריט</button></header>
+  <div id="pad"></div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const LOCAL = params.has('local');
+const PREFIX = 'tvparty-k3x-';
+const QCOL = ['#e03131', '#1971c2', '#f08c00', '#2f9e44'];
+const QSHAPE = ['▲', '◆', '●', '■'];
+
+let myId = params.get('pid') || localStorage.getItem('tvp-id');
+if (!myId) { myId = 'p' + Math.random().toString(36).slice(2, 10); localStorage.setItem('tvp-id', myId); }
+$('nameIn').value = localStorage.getItem('tvp-name') || '';
+$('codeIn').value = (params.get('code') || '').toUpperCase();
+
+let sendFn = null, peer = null, myColor = '#4dabf7', cleanup = [];
+const send = d => { if (sendFn) try { sendFn(d); } catch (e) {} };
+const buzz = ms => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
+
+function showJoin(msg) {
+  $('app').hidden = true; $('join').hidden = false; $('joinMsg').textContent = msg || '';
+  $('joinBtn').disabled = false;
+}
+
+function loadScript(src) {
+  return new Promise((res, rej) => { if (window.Peer) return res(); const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+}
+
+$('joinBtn').onclick = () => {
+  const name = $('nameIn').value.trim(), code = $('codeIn').value.trim().toUpperCase();
+  if (!name) { $('joinMsg').textContent = 'כתבו שם 🙂'; return; }
+  if (!/^[A-Z]{4}$/.test(code)) { $('joinMsg').textContent = 'הקוד צריך להיות 4 אותיות באנגלית'; return; }
+  localStorage.setItem('tvp-name', name);
+  connect(name, code);
+};
+
+function connect(name, code) {
+  $('joinBtn').disabled = true; $('joinMsg').textContent = 'מתחבר…';
+  if (LOCAL) {
+    const bc = new BroadcastChannel(PREFIX + code);
+    bc.onmessage = e => { if (e.data && e.data.to === myId) onMsg(e.data.data); };
+    sendFn = d => bc.postMessage({ to: 'tv', from: myId, data: d });
+    send({ t: 'join', id: myId, name });
+    return;
+  }
+  loadScript('https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js').then(() => {
+    if (peer) try { peer.destroy(); } catch (e) {}
+    peer = new Peer({ debug: 0 });
+    let opened = false;
+    peer.on('open', () => {
+      const conn = peer.connect(PREFIX + code.toLowerCase(), { serialization: 'json', reliable: true });
+      conn.on('open', () => { opened = true; sendFn = d => { if (conn.open) conn.send(d); }; send({ t: 'join', id: myId, name }); });
+      conn.on('data', onMsg);
+      conn.on('close', () => { sendFn = null; showJoin('החיבור לטלוויזיה נותק – לחצו שוב על הצטרפות'); });
+      setTimeout(() => { if (!opened) showJoin('לא הצלחנו להתחבר. בדקו את הקוד ושהטלפון והטלוויזיה מחוברים לאינטרנט.'); }, 12000);
+    });
+    peer.on('error', e => showJoin(e.type === 'peer-unavailable' ? 'לא נמצא מסך עם הקוד הזה 🤔' : 'שגיאת חיבור (' + e.type + ')'));
+  }).catch(() => showJoin('אין חיבור לאינטרנט'));
+}
+
+function onMsg(m) {
+  if (!m) return;
+  if (m.t === 'welcome') {
+    myColor = m.color;
+    $('dot').style.background = m.color; $('me').textContent = m.name;
+    $('join').hidden = true; $('app').hidden = false;
+    buzz(40);
+    try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+  } else if (m.t === 'ui') render(m);
+  else if (m.t === 'buzz') buzz(m.ms);
+  else if (m.t === 'full') showJoin('המשחק מלא (8 שחקנים) 😅');
+}
+
+$('quit').onclick = () => { buzz(20); send({ t: 'quit' }); };
+
+// ---------------------------------------------------------------- UI builders
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+function render(m) {
+  cleanup.forEach(f => f()); cleanup = [];
+  const pad = $('pad'); pad.innerHTML = '';
+  $('quit').hidden = !(m.host && m.inGame);
+  (UI[m.ui] || UI.wait)(pad, m);
+}
+
+const UI = {
+  wait(pad, m) { pad.appendChild(el('div', 'msg', esc(m.text || 'רגע…'))); },
+
+  menu(pad, m) {
+    const box = el('div', 'menu');
+    box.appendChild(el('h2', null, '👑 בחרו משחק'));
+    for (const g of m.games) {
+      const b = el('button', 'game', `<span class="ic">${esc(g.icon)}</span><span><b>${esc(g.name)}</b><small>${esc(g.desc)}</small></span>`);
+      b.onclick = () => { buzz(25); send({ t: 'pick', game: g.id }); };
+      box.appendChild(b);
+    }
+    pad.appendChild(box);
+  },
+
+  dpad(pad) {
+    const g = el('div', 'dpad');
+    const cells = ['', 'u', '', 'l', '', 'r', '', 'd', ''];
+    const arrow = { u: '⬆', d: '⬇', l: '⬅', r: '➡' };
+    cells.forEach(d => {
+      if (!d) { g.appendChild(el('div')); return; }
+      const b = el('button', null, arrow[d]);
+      b.addEventListener('pointerdown', e => { e.preventDefault(); send({ t: 'in', d }); buzz(12); b.classList.add('hit'); setTimeout(() => b.classList.remove('hit'), 120); });
+      g.appendChild(b);
+    });
+    // swipe anywhere on the pad
+    let sx = 0, sy = 0, armed = false;
+    const down = e => { sx = e.clientX; sy = e.clientY; armed = true; };
+    const move = e => {
+      if (!armed) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (Math.hypot(dx, dy) < 35) return;
+      send({ t: 'in', d: Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'r' : 'l') : (dy > 0 ? 'd' : 'u') });
+      buzz(10); sx = e.clientX; sy = e.clientY;
+    };
+    const up = () => { armed = false; };
+    pad.addEventListener('pointerdown', down); pad.addEventListener('pointermove', move); pad.addEventListener('pointerup', up);
+    cleanup.push(() => { pad.removeEventListener('pointerdown', down); pad.removeEventListener('pointermove', move); pad.removeEventListener('pointerup', up); });
+    pad.appendChild(el('div', 'hint', 'לחצו על החצים או החליקו לכל כיוון'));
+    pad.appendChild(g);
+  },
+
+  slider(pad, m) {
+    pad.appendChild(el('div', 'hint', esc(m.text || '') + ' · גררו למעלה ולמטה'));
+    const s = el('div', 'slider'); const k = el('div', 'knob'); k.style.background = myColor; s.appendChild(k);
+    pad.appendChild(s);
+    let lastSent = 0, pending = null, timer = null;
+    const flush = () => { if (pending != null) { send({ t: 'in', v: pending }); pending = null; lastSent = performance.now(); } timer = null; };
+    const at = e => {
+      const r = s.getBoundingClientRect();
+      const v = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+      k.style.top = (v * 82 + 9) + '%';
+      pending = Math.round(v * 1000) / 1000;
+      if (performance.now() - lastSent > 33) flush(); else if (!timer) timer = setTimeout(flush, 33);
+    };
+    s.addEventListener('pointerdown', e => { s.setPointerCapture(e.pointerId); at(e); });
+    s.addEventListener('pointermove', e => { if (e.buttons || e.pointerType === 'touch') at(e); });
+    cleanup.push(() => timer && clearTimeout(timer));
+  },
+
+  buttons4(pad, m) {
+    if (m.title) pad.appendChild(el('div', 'hint', esc(m.title)));
+    const g = el('div', 'b4');
+    const bs = (m.labels || []).map((lab, i) => {
+      const b = el('button', null, `<span>${QSHAPE[i]}</span>${esc(lab)}`);
+      b.style.background = QCOL[i];
+      b.onclick = () => { buzz(25); bs.forEach(x => x.disabled = true); send({ t: 'in', a: i }); };
+      g.appendChild(b); return b;
+    });
+    pad.appendChild(g);
+  },
+
+  tap(pad) {
+    const b = el('button', 'tap', 'לחץ!');
+    b.addEventListener('pointerdown', e => { e.preventDefault(); send({ t: 'in', tap: 1 }); buzz(15); b.classList.add('hit'); setTimeout(() => b.classList.remove('hit'), 100); });
+    pad.appendChild(el('div', 'hint', 'לוחצים רק כשהמסך בטלוויזיה ירוק!'));
+    pad.appendChild(b);
+  },
+
+  joystick(pad) {
+    pad.appendChild(el('div', 'hint', 'הזיזו את הג׳ויסטיק · "דחיפה" לזינוק'));
+    const wrap = el('div', 'joy');
+    const base = el('div', 'base'), stick = el('div', 'stick'); stick.style.background = myColor;
+    base.appendChild(stick);
+    const dash = el('button', 'dash', 'דחיפה!');
+    wrap.appendChild(base); wrap.appendChild(dash); pad.appendChild(wrap);
+    let x = 0, y = 0, active = null, lastX = 9, lastY = 9;
+    const setFrom = e => {
+      const r = base.getBoundingClientRect(), R = r.width / 2;
+      let dx = (e.clientX - r.left - R) / (R * 0.75), dy = (e.clientY - r.top - R) / (R * 0.75);
+      const l = Math.hypot(dx, dy); if (l > 1) { dx /= l; dy /= l; }
+      x = dx; y = dy;
+      stick.style.left = (30 + dx * 30) + '%'; stick.style.top = (30 + dy * 30) + '%';
+    };
+    base.addEventListener('pointerdown', e => { active = e.pointerId; base.setPointerCapture(e.pointerId); setFrom(e); });
+    base.addEventListener('pointermove', e => { if (e.pointerId === active) setFrom(e); });
+    const release = e => { if (e.pointerId !== active) return; active = null; x = 0; y = 0; stick.style.left = '30%'; stick.style.top = '30%'; };
+    base.addEventListener('pointerup', release); base.addEventListener('pointercancel', release);
+    dash.addEventListener('pointerdown', e => { e.preventDefault(); send({ t: 'in', dash: 1 }); buzz(30); dash.classList.add('hit'); setTimeout(() => dash.classList.remove('hit'), 120); });
+    const iv = setInterval(() => {
+      const qx = Math.round(x * 100) / 100, qy = Math.round(y * 100) / 100;
+      if (qx !== lastX || qy !== lastY) { send({ t: 'in', x: qx, y: qy }); lastX = qx; lastY = qy; }
+    }, 40);
+    cleanup.push(() => clearInterval(iv));
+  },
+};
+
+document.addEventListener('contextmenu', e => e.preventDefault());
+if (params.get('code') && $('nameIn').value) $('joinBtn').click();
+</script>
+</body>
+</html>
