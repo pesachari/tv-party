@@ -758,14 +758,19 @@ function createSumo(ps) {
     list.forEach((c, i) => { const a = i / list.length * Math.PI * 2 - Math.PI / 2; Object.assign(c, { x: C.x + Math.cos(a) * R * 0.62, y: C.y + Math.sin(a) * R * 0.62, vx: 0, vy: 0, ix: 0, iy: 0, alive: true, fall: 0, dashCd: 0 }); });
   }
   reset();
-  function bot(c) {
+  function bot(c, dt) {
+    c.botAcc = (c.botAcc || 0) + dt * (5 + Math.random() * 2);   // ~6 taps per second
+    while (c.botAcc >= 1) { c.botAcc -= 1; push(c); }
+  }
+  // every tap shoves your sumo toward the nearest opponent – tap faster, push harder
+  function push(c) {
+    if (!c.alive || phase !== 'play') return;
     const others = list.filter(o => o !== c && o.alive);
-    let tx = C.x, ty = C.y;
-    const dc = Math.hypot(c.x - C.x, c.y - C.y);
-    if (dc < R * 0.68 && others.length) { const o = others.reduce((a, b) => Math.hypot(a.x - c.x, a.y - c.y) < Math.hypot(b.x - c.x, b.y - c.y) ? a : b); tx = o.x; ty = o.y; }
-    const dx = tx - c.x, dy = ty - c.y, l = Math.hypot(dx, dy) || 1;
-    c.ix = dx / l * 0.8; c.iy = dy / l * 0.8;
-    if (l < 220 && c.dashCd <= 0 && Math.random() < 0.03) dash(c);
+    let dx = C.x - c.x, dy = C.y - c.y;
+    if (others.length) { const o = others.reduce((a, b) => Math.hypot(a.x - c.x, a.y - c.y) < Math.hypot(b.x - c.x, b.y - c.y) ? a : b); dx = o.x - c.x; dy = o.y - c.y; }
+    const l = Math.hypot(dx, dy) || 1;
+    c.vx += dx / l * 150; c.vy += dy / l * 150;
+    c.pulse = 0.15; c.taps = (c.taps || 0) + 1;
   }
   function dash(c) {
     let dx = c.ix, dy = c.iy, l = Math.hypot(dx, dy);
@@ -778,11 +783,10 @@ function createSumo(ps) {
     if (w && wins.has(w)) wins.set(w, wins.get(w) + 1);
   }
   const g = {
-    uiFor: p => list.some(c => c.p === p) ? { ui: 'joystick' } : null,
+    uiFor: p => list.some(c => c.p === p) ? { ui: 'tap', label: 'דחוף! 👊', hint: 'לחצו כמה שיותר מהר – כל לחיצה דוחפת את הסומו שלכם לעבר היריב!' } : null,
     input(p, m) {
       const c = list.find(c => c.p === p); if (!c) return;
-      if (typeof m.x === 'number' && typeof m.y === 'number') { c.ix = clamp(m.x, -1, 1); c.iy = clamp(m.y, -1, 1); }
-      if (m.dash && c.alive && c.dashCd <= 0 && phase === 'play') dash(c);
+      if (m.tap) push(c);
     },
     update(dt) {
       t += dt;
@@ -799,9 +803,8 @@ function createSumo(ps) {
       if (t > 14) R = Math.max(230, R - dt * 14);
       for (const c of list) {
         if (!c.alive) continue;
-        if (c.p.bot) bot(c);
-        c.dashCd -= dt;
-        c.vx += c.ix * 1500 * dt; c.vy += c.iy * 1500 * dt;
+        if (c.p.bot) bot(c, dt);
+        if (c.pulse > 0) c.pulse -= dt;
         const damp = Math.exp(-1.7 * dt); c.vx *= damp; c.vy *= damp;
         const sp = Math.hypot(c.vx, c.vy); if (sp > 1150) { c.vx *= 1150 / sp; c.vy *= 1150 / sp; }
         c.x += c.vx * dt; c.y += c.vy * dt;
@@ -842,7 +845,7 @@ function createSumo(ps) {
         const gg = ctx.createRadialGradient(c.x - 14 * s, c.y - 16 * s, 4, c.x, c.y, RB * s);
         gg.addColorStop(0, '#fff'); gg.addColorStop(0.25, c.p.color); gg.addColorStop(1, c.p.color);
         ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(c.x, c.y, RB * s, 0, Math.PI * 2); ctx.fill();
-        if (c.alive && c.dashCd > 1.2) { ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.stroke(); }
+        if (c.alive && c.pulse > 0) { ctx.lineWidth = 8; ctx.strokeStyle = '#fff'; ctx.stroke(); }
         T(c.p.name, c.x, c.y - RB - 24, 28, '#fff');
         ctx.globalAlpha = 1;
       }
@@ -1772,7 +1775,7 @@ const GAMES = [
   { id: 'pong', name: 'פונג', icon: '🏓', desc: 'מזיזים את המחבט עם האצבע · 1–4', create: createPong },
   { id: 'quiz', name: 'טריוויה', icon: '🧠', desc: 'מי עונה נכון והכי מהר · 1–8', create: createQuiz },
   { id: 'react', name: 'הכי מהיר', icon: '⚡', desc: 'לוחצים ברגע שהמסך ירוק · 1–8', create: createReact },
-  { id: 'sumo', name: 'סומו', icon: '💥', desc: 'דוחפים את כולם מהזירה · 1–8', create: createSumo },
+  { id: 'sumo', name: 'סומו', icon: '💥', desc: 'לוחצים מהר ודוחפים את כולם מהזירה · 1–8', create: createSumo },
   { id: 'ships', name: 'צוללות', icon: '🚢', desc: 'מטביעים את הצי של היריב · 1–2', create: createShips },
   { id: 'checkers', name: 'דמקה', icon: '⚫', desc: 'הקלאסיקה – אחד על אחד · 1–2', create: createCheckers },
   { id: 'fort', name: 'מלחמת מבצרים', icon: '🏰', desc: '10 מבנים, 5 כלי נשק ובונוסים · 1–8', create: createFort },
