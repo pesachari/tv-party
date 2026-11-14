@@ -34,9 +34,9 @@
   .g .ic { font-size: 5vh; }
   .g b { display: block; font-size: 2.5vh; margin-top: .6vh; }
   .g small { display: block; font-size: 1.6vh; opacity: .7; margin-top: .6vh; }
-  #musicHint { position: fixed; top: 2.5vh; left: 2.5vw; padding: 1.2vh 2.4vh; border-radius: 99px; background: #fcc419; color: #2b1d00; font-size: 2.4vh; font-weight: 800; z-index: 5; animation: pulse 1.6s infinite; }
+  #musicHint { position: fixed; bottom: 3vh; left: 50%; transform: translateX(-50%); padding: 1.2vh 2.4vh; border-radius: 99px; background: #fcc419; color: #2b1d00; font-size: 2.4vh; font-weight: 800; z-index: 5; animation: pulse 1.6s infinite; }
   #musicHint[hidden] { display: none; }
-  @keyframes pulse { 50% { transform: scale(1.06); } }
+  @keyframes pulse { 50% { transform: translateX(-50%) scale(1.06); } }
   #status { position: fixed; bottom: .8vh; left: 1vw; font-size: 1.8vh; opacity: .55; direction: rtl; }
 </style>
 </head>
@@ -1139,85 +1139,100 @@ function createCheckers(ps) {
 
 // ====================================================================== GAME 8: fort wars
 function createFort(ps) {
-  const CS = 34, GW = 56, GH = 32, GROUND = 28, G = 900, TW = 14;
+  const CS = 34, GW = 56, GH = 32, GROUND = 28, G = 900, TW = 14, MAXHP = 60;
   const MAT = {
-    G: { name: 'זכוכית', hp: 14, mult: 1.6, c: '#a5d8ff' },
-    W: { name: 'עץ', hp: 45, mult: 1, c: '#b5793a' },
-    B: { name: 'לבנים', hp: 75, mult: 0.85, c: '#c0502b' },
-    S: { name: 'אבן', hp: 120, mult: 0.65, c: '#8d939b' },
-    T: { name: 'פלדה', hp: 240, mult: 0.38, c: '#4f5b6b' },
+    G: { name: 'זכוכית', hp: 14, mult: 1.6, span: 1, c: '#a5d8ff' },
+    W: { name: 'עץ', hp: 45, mult: 1, span: 3, c: '#b5793a' },
+    B: { name: 'לבנים', hp: 75, mult: 0.85, span: 2, c: '#c0502b' },
+    S: { name: 'אבן', hp: 120, mult: 0.65, span: 3, c: '#8d939b' },
+    T: { name: 'פלדה', hp: 240, mult: 0.38, span: 6, c: '#4f5b6b' },
   };
-  const TPL = [
-    '.....GGGG.....',
-    '....TSSSST....',
-    '...BBBBBBBB...',
-    '...W......W...',
-    '...G......G...',
-    '...W......W...',
-    '..SSSSSSSSSS..',
-    '..B........B..',
-    '..G........G..',
-    '..B........B..',
-    'WWWWWWWWWWWWWW',
-    'B............B',
-    'G............G',
-    'B............B',
-    'TTTTTTTTTTTTTT',
-  ];
-  const SPOTS = [[2, 13], [5, 13], [8, 13], [11, 13], [4, 9], [7, 9], [10, 9], [5, 5], [8, 5], [3, 1]];
+  const FORT_TYPES = [{"name": "בית קלאסי", "rows": [".....GGGG.....", "....TSSSST....", "...TTTTTTTT...", "...W......W...", "...G......G...", "...W......W...", "..TTTTTTTTTT..", "..B........B..", "..G........G..", "..B........B..", "TTTTTTTTTTTTTT", "B............B", "G.....BB.....G", "B.....BB.....B", "SSSSSSSSSSSSSS"]}, {"name": "מגדל אבן", "rows": ["...TTTTTTTT...", "...S......S...", "...G......G...", "...SSSSSSSSS..", "...S......S...", "...G......G...", "...SSSSSSSSS..", "...S......S...", "...G......G...", "...SSSSSSSSS..", "...S......S...", "...G......G...", "...S......S...", "..TTTTTTTTTTT."]}, {"name": "בונקר", "rows": ["..TTTTTTTTTT..", "..T........T..", "..T........T..", "SSSSSSSSSSSSSS", "S....S..S....S", "S....S..S....S", "TTTTTTTTTTTTTT"]}, {"name": "בקתת עץ", "rows": ["......WW......", ".....WWWW.....", "....WWWWWW....", "...W..W...W...", "...W..W...W...", "..WWWWWWWWWW..", "..W...W...W...", "..G...W...G...", "..W...W...W...", "WWWWWWWWWWWWWW", "W...W....W...W", "W...W....W...W", "BBBBBBBBBBBBBB"]}, {"name": "מבצר לבנים", "rows": ["B.B.B.....B.B.", "BBBBB.....BBBB", "B...B.....B..B", "B...BSSSSSB..B", "BBBBB.....BBBB", "B...B..B..B..B", "B...B..B..B..B", "SSSSSSSSSSSSSS", "B..B..B..B..BB", "B..B..B..B..BB", "SSSSSSSSSSSSSS"]}, {"name": "מגדל זכוכית", "rows": ["...TTTTTTTT...", "...T.....GT...", "...T......T...", "...TTTTTTTT...", "...G..T...G...", "...G..T...G...", "...TTTTTTTT...", "...G..T...G...", "...G..T...G...", "...TTTTTTTT...", "...G..T...G...", "...G..T...G...", "...TTTTTTTT...", "...T..T...T...", "...T..T...T...", "SSSSSSSSSSSSSS"]}, {"name": "פירמידה", "rows": ["......SS......", ".....SSSS.....", "....SS..SS....", "...SSSSSSSS...", "..SS..SS..SS..", ".SSSSSSSSSSSS.", "SS..SS..SS..SS", "SSSSSSSSSSSSSS"]}, {"name": "טירה עם צריחים", "rows": ["B.B.......B.B.", "BBB.......BBB.", "B.B.......B.B.", "B.TTTTTTTTT.B.", "B.B.......B.B.", "BBB.......BBB.", "B.B.......B.B.", "B.B.......B.B.", "SSSSSSSSSSSSS.", "B.....B.....B.", "B.....B.....B.", "SSSSSSSSSSSSS."]}, {"name": "רציף על עמודים", "rows": ["...W......W...", "...WWWWWWWW...", "...W......W...", "...W......W...", "TTTTTTTTTTTTTT", ".S....S.....S.", ".S....S.....S.", ".S....S.....S.", ".S....S.....S.", ".S....S.....S.", "SSSSSSSSSSSSSS"]}, {"name": "מבוך קומות", "rows": ["......TTTTTT..", "......W....W..", "..TTTTTTTTTT..", "..W.....W..W..", "..W.....W..W..", "..TTTTTTTTTTT.", "..S....S...S..", "..G....G...S..", ".TTTTTTTTTTTT.", ".W...W.....W..", ".W...G.....W..", "BBBBBBBBBBBBBB"]}];
   const WEAPONS = [
-    { id: 'bz', name: 'בזוקה', icon: '🚀', speed: 1500, grav: 0.25, R: 4.2, dmg: 130, sdmg: 70, ammo: 1 },
-    { id: 'gr', name: 'רימון', icon: '💣', speed: 1050, grav: 1, bounce: true, fuse: 2.6, R: 3.1, dmg: 85, sdmg: 55, ammo: 2 },
-    { id: 'mo', name: 'מרגמה', icon: '🎯', speed: 1300, grav: 1.1, R: 3.7, dmg: 105, sdmg: 60, ammo: 2 },
-    { id: 'sn', name: 'צלף', icon: '🔫', hitscan: true, dmg: 35, sdmg: 65, ammo: 99 },
-    { id: 'cl', name: 'מצרר', icon: '🎆', speed: 1150, grav: 1, cluster: 5, R: 2.4, dmg: 60, sdmg: 35, ammo: 1 },
+    { id: 'bz', name: 'בזוקה', icon: '🚀', speed: 1500, grav: 0.25, R: 4.6, dmg: 200, sdmg: 85, ammo: 1 },
+    { id: 'gr', name: 'רימון', icon: '💣', speed: 1050, grav: 1, bounce: true, fuse: 2.6, R: 3.4, dmg: 130, sdmg: 65, ammo: 2 },
+    { id: 'mo', name: 'מרגמה', icon: '🎯', speed: 1300, grav: 1.1, R: 4, dmg: 160, sdmg: 75, ammo: 2 },
+    { id: 'sn', name: 'צלף', icon: '🔫', hitscan: true, dmg: 50, sdmg: 45, ammo: 99 },
+    { id: 'cl', name: 'מצרר', icon: '🎆', speed: 1150, grav: 1, cluster: 5, R: 2.5, dmg: 90, sdmg: 40, ammo: 1 },
   ];
-  const BOMBLET = { id: 'bl', grav: 1, R: 2.2, dmg: 60, sdmg: 32 };
-  const XL = 3, XR = GW - 3 - TW, TOP = GROUND - TPL.length;
+  const BOMBLET = { id: 'bl', grav: 1, R: 2.4, dmg: 95, sdmg: 40 };
+  const RAIN = { id: 'rn', grav: 1, R: 3.3, dmg: 150, sdmg: 55 };
+  const CRATES = [
+    { id: 'double', icon: '🚀', label: 'בזוקה כפולה בתור הבא!' },
+    { id: 'rain', icon: '☄️', label: 'גשם טילים!' },
+    { id: 'shield', icon: '🛡️', label: 'מגן אנרגיה!' },
+    { id: 'tramp', icon: '🔁', label: 'טרמפולינה מחזירה טילים!' },
+    { id: 'medic', icon: '❤️', label: 'עזרה ראשונה לכל החיילים!' },
+  ];
+  const XL = 3, XR = GW - 3 - TW;
   const cells = new Array(GW * GH).fill(null);
   const at = (x, y) => (x < 0 || x >= GW || y < 0 || y >= GH) ? null : cells[y * GW + x];
+  // solid for physics of soldiers/debris: any block or ground
   const solidPx = (px, py) => py >= GROUND * CS || !!at(Math.floor(px / CS), Math.floor(py / CS));
-  TPL.forEach((row, r) => {
-    for (let c = 0; c < TW; c++) {
-      const ch = row[c]; if (ch === '.') continue;
-      for (const [x0, mir] of [[XL, false], [XR, true]]) {
-        const x = mir ? x0 + TW - 1 - c : x0 + c;
-        cells[(TOP + r) * GW + x] = { m: ch, hp: MAT[ch].hp, max: MAT[ch].hp, falling: false, fall: 0 };
-      }
-    }
-  });
+  // solid for a projectile of `team`: own blocks are see-through
+  const solidFor = (px, py, team) => { if (py >= GROUND * CS) return true; const c = at(Math.floor(px / CS), Math.floor(py / CS)); return !!c && c.team !== team; };
 
+  // ---------- teams & forts (each side gets a different building)
+  const ti = Math.floor(Math.random() * FORT_TYPES.length);
+  let tj = Math.floor(Math.random() * (FORT_TYPES.length - 1)); if (tj >= ti) tj++;
   const teams = {
-    L: { side: 'L', color: '#ff6b6b', players: [], soldiers: [], idx: -1, turns: 0 },
-    R: { side: 'R', color: '#4dabf7', players: [], soldiers: [], idx: -1, turns: 0 },
+    L: { side: 'L', color: '#ff6b6b', players: [], soldiers: [], idx: -1, turns: 0, fort: FORT_TYPES[ti], x0: XL },
+    R: { side: 'R', color: '#4dabf7', players: [], soldiers: [], idx: -1, turns: 0, fort: FORT_TYPES[tj], x0: XR },
   };
   ps.forEach((p, i) => teams[i % 2 ? 'R' : 'L'].players.push(p));
   const cpu = makeBot('המחשב');
-  for (const side of ['L', 'R']) SPOTS.forEach(([c, r], n) => {
-    const X = side === 'L' ? XL + c : XR + TW - 1 - c;
-    teams[side].soldiers.push({ side, n: n + 1, x: (X + 0.5) * CS, y: (TOP + r + 1) * CS, vx: 0, vy: 0, hp: 100, alive: true, ammo: WEAPONS.map(w => w.ammo) });
-  });
-  const soldiers = () => teams.L.soldiers.concat(teams.R.soldiers);
-  const alive = side => teams[side].soldiers.filter(s => s.alive);
-  const teamName = side => teams[side].players.length ? teams[side].players.map(p => p.name).join(' + ') : cpu.name;
 
-  let turnSide = Math.random() < 0.5 ? 'L' : 'R', active = null, ctrl = null, aim = { a: 0, p: 0.6 }, wsel = 0;
-  let phase = 'aim', timer = 30, wind = 0, settleT = 0, totalTurns = 0, botT = 0, botPlan = null, banner = null, shake = 0, fallAcc = 0, anyFalling = false;
-  const projs = [], parts = [], tracers = [];
-
-  function recomputeSupport() {
-    const sup = new Uint8Array(GW * GH), q = [];
-    for (let x = 0; x < GW; x++) { const i = (GROUND - 1) * GW + x; if (cells[i] && !cells[i].falling) { sup[i] = 1; q.push(i); } }
-    for (let x = 0; x < GW; x++) { const i = (GROUND - 1) * GW + x; if (cells[i] && cells[i].falling) { sup[i] = 1; q.push(i); } }
-    while (q.length) {
-      const i = q.pop(), x = i % GW, y = (i / GW) | 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nx = x + dx, ny = y + dy; if (nx < 0 || nx >= GW || ny < 0 || ny >= GROUND) continue;
-        const j = ny * GW + nx; if (!sup[j] && cells[j]) { sup[j] = 1; q.push(j); }
+  function spotsOf(t) {
+    const H_ = t.length, cand = {};
+    for (let r = 0; r < H_ - 1; r++) for (let c = 0; c < TW; c++)
+      if (t[r][c] === '.' && t[r + 1][c] !== '.' && (r === 0 || t[r - 1][c] === '.')) (cand[r] = cand[r] || []).push(c);
+    const order = Object.keys(cand).map(Number).sort((a, b) => a - b), taken = {}, out = [];
+    let progress = true;
+    while (out.length < 10 && progress) {
+      progress = false;
+      for (const r of order) {
+        taken[r] = taken[r] || [];
+        const c = cand[r].find(c => taken[r].every(x => Math.abs(c - x) >= 2));
+        if (c != null) { taken[r].push(c); out.push([c, r]); progress = true; }
+        if (out.length >= 10) break;
       }
     }
+    return out;
+  }
+  for (const side of ['L', 'R']) {
+    const T = teams[side], rows = T.fort.rows, top = GROUND - rows.length;
+    T.top = top;
+    const col = c => side === 'L' ? T.x0 + c : T.x0 + TW - 1 - c;
+    rows.forEach((row, r) => { for (let c = 0; c < TW; c++) { const ch = row[c]; if (ch !== '.') cells[(top + r) * GW + col(c)] = { m: ch, hp: MAT[ch].hp, max: MAT[ch].hp, team: side, falling: false, fall: 0 }; } });
+    spotsOf(rows).forEach(([c, r], n) => T.soldiers.push({ side, n: n + 1, x: (col(c) + 0.5) * CS, y: (top + r + 1) * CS, vx: 0, vy: 0, hp: MAXHP, alive: true, ammo: WEAPONS.map(w => w.ammo) }));
+  }
+  const soldiers = () => teams.L.soldiers.concat(teams.R.soldiers);
+  const alive = side => teams[side].soldiers.filter(s => s.alive);
+  const other = side => side === 'L' ? 'R' : 'L';
+  const teamName = side => teams[side].players.length ? teams[side].players.map(p => p.name).join(' + ') : cpu.name;
+  const barrierX = (side, kind) => {
+    const off = kind === 'shield' ? 0.8 : 2.3;
+    return side === 'L' ? (XL + TW + off) * CS : (XR - off) * CS;
+  };
+
+  let turnSide = Math.random() < 0.5 ? 'L' : 'R', active = null, ctrl = null, aim = { a: 0, p: 0.6 }, wsel = 0, doubleNow = false;
+  let phase = 'aim', timer = 30, wind = 0, settleT = 0, totalTurns = 0, botT = 0, botPlan = null, banner = null, shake = 0, fallAcc = 0, anyFalling = false;
+  const projs = [], parts = [], tracers = [], crates = [], pending = [];
+
+  // ---------- structural gravity: a block stands if it rests on a standing block,
+  // or reaches one sideways within its material's span (steel beams reach far, glass barely)
+  function recomputeSupport() {
+    const st = new Uint8Array(GW * GH);
+    for (let r = GROUND - 1; r >= 0; r--) {
+      const d = new Array(GW).fill(99);
+      for (let c = 0; c < GW; c++) { const cl = cells[r * GW + c]; if (cl && !cl.falling && (r === GROUND - 1 || st[(r + 1) * GW + c])) d[c] = 0; }
+      const ok = c => { const cl = cells[r * GW + c]; return cl && d[c] <= MAT[cl.m].span; };
+      for (let c = 1; c < GW; c++) if (cells[r * GW + c] && ok(c - 1)) d[c] = Math.min(d[c], d[c - 1] + 1);
+      for (let c = GW - 2; c >= 0; c--) if (cells[r * GW + c] && ok(c + 1)) d[c] = Math.min(d[c], d[c + 1] + 1);
+      for (let c = 0; c < GW; c++) if (ok(c)) st[r * GW + c] = 1;
+    }
     anyFalling = false;
-    for (let i = 0; i < cells.length; i++) { const c = cells[i]; if (c) { c.falling = !sup[i]; if (c.falling) anyFalling = true; } }
+    for (let i = 0; i < cells.length; i++) { const c = cells[i]; if (c) { c.falling = !st[i]; if (c.falling) anyFalling = true; } }
   }
   function breakCell(x, y) {
     const c = at(x, y); if (!c) return;
@@ -1231,10 +1246,10 @@ function createFort(ps) {
       const below = y + 1 >= GROUND ? 'ground' : cells[i + GW];
       if (!below) {
         cells[i + GW] = c; cells[i] = null; c.fall++; moved = true;
-        for (const s of soldiers()) if (s.alive && Math.abs(s.x - (x + 0.5) * CS) < CS * 0.7 && s.y > (y + 1) * CS && s.y - 34 < (y + 2) * CS) hurt(s, 12);
+        for (const s of soldiers()) if (s.alive && Math.abs(s.x - (x + 0.5) * CS) < CS * 0.7 && s.y > (y + 1) * CS && s.y - 34 < (y + 2) * CS) hurt(s, 15);
       } else if (below === 'ground' || !below.falling || below.landed) {
         c.falling = false; c.landed = true; landed = true;
-        if (c.fall > 1) { c.hp -= c.fall * 12 * MAT[c.m].mult; if (c.hp <= 0) breakCell(x, y); }
+        if (c.fall > 1) { c.hp -= c.fall * 14 * MAT[c.m].mult; if (c.hp <= 0) breakCell(x, y); }
         c.fall = 0;
       }
     }
@@ -1247,15 +1262,45 @@ function createFort(ps) {
     if (s.hp <= 0) {
       s.hp = 0; s.alive = false;
       parts.push({ type: 'ghost', x: s.x, y: s.y - 20, t: 0, life: 1.4 });
-      const team = teams[s.side]; team.players.forEach(p => send(p, { t: 'buzz', ms: 200 }));
+      teams[s.side].players.forEach(p => send(p, { t: 'buzz', ms: 200 }));
     }
   }
-  function explode(x, y, w) {
+
+  // ---------- bonus crates floating in the middle
+  function spawnCrate() {
+    const minX = (XL + TW + 4) * CS, maxX = (XR - 4) * CS;
+    for (let k = 0; k < 20; k++) {
+      const x = rand(minX, maxX), y = rand(260, 700);
+      if (crates.every(c => Math.hypot(c.x - x, c.y - y) > 160)) { crates.push({ type: CRATES[Math.floor(Math.random() * CRATES.length)], x, y, t: rand(0, 6) }); return; }
+    }
+  }
+  for (let k = 0; k < 3; k++) spawnCrate();
+  function crateAt(x, y) { return crates.find(c => Math.abs(x - c.x) < 28 && Math.abs(y - c.y) < 28); }
+  function collect(cr, team) {
+    crates.splice(crates.indexOf(cr), 1);
+    if (!team) return;
+    const T = teams[team];
+    parts.push({ type: 'flash', x: cr.x, y: cr.y, r: 70, t: 0, life: 0.4 });
+    for (let k = 0; k < 10; k++) parts.push({ type: 'debris', x: cr.x, y: cr.y, vx: rand(-300, 300), vy: rand(-400, 0), s: 8, c: '#c99a5b', t: 0, life: 1, rot: 0 });
+    banner = { text: `${cr.type.icon} ${cr.type.label}`, t: 2, color: T.color };
+    Music.sfx('hit');
+    if (cr.type.id === 'double') T.pendingDouble = true;
+    else if (cr.type.id === 'shield') T.shield = { hp: 2 };
+    else if (cr.type.id === 'tramp') T.tramp = { uses: 2 };
+    else if (cr.type.id === 'medic') T.soldiers.forEach(s => { if (s.alive) s.hp = Math.min(MAXHP, s.hp + 25); });
+    else if (cr.type.id === 'rain') {
+      const E = teams[other(team)], x0 = E.x0 * CS;
+      for (let k = 0; k < 7; k++) projs.push({ w: RAIN, team, x: x0 + rand(0, TW * CS), y: -60 - k * 110, vx: rand(-30, 30), vy: 250, t: 1, owner: null });
+    }
+    T.players.forEach(p => send(p, { t: 'buzz', ms: [60, 40, 60] }));
+  }
+
+  function explode(x, y, w, team) {
     const R = w.R, cx = x / CS, cy = y / CS;
     for (let yy = Math.floor(cy - R); yy <= Math.ceil(cy + R); yy++) for (let xx = Math.floor(cx - R); xx <= Math.ceil(cx + R); xx++) {
-      const c = at(xx, yy); if (!c) continue;
+      const c = at(xx, yy); if (!c || c.team === team) continue;   // your own building is never damaged by your shots
       const d = Math.hypot(xx + 0.5 - cx, yy + 0.5 - cy); if (d > R) continue;
-      c.hp -= w.dmg * (1 - (d / R) * 0.7) * MAT[c.m].mult * rand(0.8, 1.2);
+      c.hp -= w.dmg * (1 - (d / R) * 0.65) * MAT[c.m].mult * rand(0.85, 1.2);
       if (c.hp <= 0) breakCell(xx, yy);
     }
     const RP = R * CS * 1.15;
@@ -1263,24 +1308,26 @@ function createFort(ps) {
       if (!s.alive) continue;
       const sy = s.y - 17, d = Math.hypot(s.x - x, sy - y); if (d > RP) continue;
       const f = 1 - d / RP;
-      hurt(s, w.sdmg * (0.35 + 0.65 * f));
-      const k = 650 * f;
-      s.vx += (s.x - x) / (d || 1) * k; s.vy += (sy - y) / (d || 1) * k - 260 * f;
+      hurt(s, w.sdmg * (0.4 + 0.6 * f));
+      const k = 700 * f;
+      s.vx += (s.x - x) / (d || 1) * k; s.vy += (sy - y) / (d || 1) * k - 280 * f;
     }
+    for (const cr of crates.slice()) if (Math.hypot(cr.x - x, cr.y - y) < RP) collect(cr, team);
     parts.push({ type: 'flash', x, y, r: RP, t: 0, life: 0.35 });
     for (let i = 0; i < 12; i++) parts.push({ type: 'smoke', x: x + rand(-20, 20), y: y + rand(-20, 20), vx: rand(-60, 60), vy: rand(-120, -20), r: rand(14, 30), t: 0, life: rand(0.8, 1.6) });
     shake = Math.min(1, shake + R * 0.12);
     Music.sfx('boom', Math.min(1, R / 4));
     recomputeSupport();
   }
-  function sniper(sx, sy, dx, dy, w) {
+  function sniper(sx, sy, dx, dy, w, team) {
     let x = sx, y = sy;
     for (let d = 0; d < 2600; d += 5) {
       x = sx + dx * d; y = sy + dy * d;
       if (x < 0 || x > W || y < 0 || y > H) break;
-      const hit = soldiers().find(s => s.alive && s !== active && Math.abs(x - s.x) < 10 && y > s.y - 36 && y < s.y);
+      const cr = crateAt(x, y); if (cr) { collect(cr, team); break; }
+      const hit = soldiers().find(s => s.alive && s.side !== team && Math.abs(x - s.x) < 10 && y > s.y - 36 && y < s.y);
       if (hit) { hurt(hit, w.sdmg); hit.vx += dx * 150; parts.push({ type: 'flash', x, y, r: 18, t: 0, life: 0.2 }); break; }
-      if (solidPx(x, y)) {
+      if (solidFor(x, y, team)) {
         const c = at(Math.floor(x / CS), Math.floor(y / CS));
         if (c) { c.hp -= w.dmg * MAT[c.m].mult; if (c.hp <= 0) { breakCell(Math.floor(x / CS), Math.floor(y / CS)); recomputeSupport(); } }
         parts.push({ type: 'flash', x, y, r: 14, t: 0, life: 0.2 });
@@ -1290,44 +1337,64 @@ function createFort(ps) {
     tracers.push({ x1: sx, y1: sy, x2: x, y2: y, t: 0 });
     Music.sfx('shot');
   }
+  function launch(w, a, p, team, owner) {
+    const sx = owner.x, sy = owner.y - 26, dx = Math.cos(a), dy = Math.sin(a), sp = w.speed * (0.25 + 0.75 * p);
+    projs.push({ w, team, x: sx + dx * 20, y: sy + dy * 20, vx: dx * sp, vy: dy * sp, t: 0, owner });
+    Music.sfx(w.id === 'bz' ? 'whoosh' : 'thump');
+  }
   function fire() {
     const w = WEAPONS[wsel]; if (!w || !active || active.ammo[wsel] <= 0) return;
     if (w.ammo < 99) active.ammo[wsel]--;
-    const sx = active.x, sy = active.y - 26, dx = Math.cos(aim.a), dy = Math.sin(aim.a);
-    if (w.hitscan) sniper(sx, sy, dx, dy, w);
+    if (w.hitscan) sniper(active.x, active.y - 26, Math.cos(aim.a), Math.sin(aim.a), w, turnSide);
     else {
-      const sp = w.speed * (0.25 + 0.75 * aim.p);
-      projs.push({ w, x: sx + dx * 20, y: sy + dy * 20, vx: dx * sp, vy: dy * sp, t: 0, owner: active });
-      Music.sfx(w.id === 'bz' ? 'whoosh' : 'thump');
+      launch(w, aim.a, aim.p, turnSide, active);
+      if (w.id === 'bz' && doubleNow) { pending.push({ t: 0.35, w, a: aim.a, p: aim.p, team: turnSide, owner: active }); doubleNow = false; }
     }
     phase = 'fly'; settleT = 0;
     syncControllers();
   }
   function stepProj(pr, dt) {
     const w = pr.w; pr.t += dt;
-    pr.vy += G * w.grav * dt; pr.vx += wind * dt * (w.id === 'bz' ? 0.3 : 1);
+    pr.vy += G * w.grav * dt; pr.vx += wind * dt * (w.id === 'bz' ? 0.3 : w.id === 'rn' ? 0.2 : 1);
     const nx = pr.x + pr.vx * dt, ny = pr.y + pr.vy * dt;
     if (nx < -200 || nx > W + 200 || ny > H + 100) { pr.dead = true; return; }
-    for (const s of soldiers()) if (s.alive && !(s === pr.owner && pr.t < 0.3) && Math.abs(nx - s.x) < 13 && ny > s.y - 36 && ny < s.y + 2) {
-      if (w.bounce) { pr.vx *= -0.3; pr.vy *= -0.3; return; }
-      explode(nx, ny, w); pr.dead = true; return;
+    // enemy shield / trampoline in front of their building
+    const E = teams[other(pr.team)];
+    for (const kind of ['tramp', 'shield']) {
+      const b = E[kind]; if (!b) continue;
+      const bx = barrierX(E.side, kind), topY = (E.top - 2) * CS;
+      if ((pr.x - bx) * (nx - bx) <= 0 && ny > topY && ny < GROUND * CS) {
+        if (kind === 'shield') {
+          pr.dead = true; b.hp--; if (b.hp <= 0) E.shield = null;
+          parts.push({ type: 'flash', x: bx, y: ny, r: 50, t: 0, life: 0.3 }); Music.sfx('hit'); return;
+        }
+        pr.vx = -pr.vx; pr.vy = -pr.vy * 0.8; pr.team = E.side; pr.owner = null; pr.x = bx + Math.sign(pr.vx) * 4;
+        b.uses--; if (b.uses <= 0) E.tramp = null;
+        parts.push({ type: 'flash', x: bx, y: ny, r: 40, t: 0, life: 0.3 }); Music.sfx('click'); return;
+      }
     }
-    if (solidPx(nx, ny)) {
+    const cr = crateAt(nx, ny);
+    if (cr) { collect(cr, pr.team); if (!w.bounce) { explode(nx, ny, w, pr.team); pr.dead = true; return; } }
+    for (const s of soldiers()) if (s.alive && s.side !== pr.team && Math.abs(nx - s.x) < 13 && ny > s.y - 36 && ny < s.y + 2) {
+      if (w.bounce) { pr.vx *= -0.3; pr.vy *= -0.3; return; }
+      explode(nx, ny, w, pr.team); pr.dead = true; return;
+    }
+    if (solidFor(nx, ny, pr.team)) {
       if (w.bounce) {
-        const hx = solidPx(nx, pr.y), hy = solidPx(pr.x, ny);
+        const hx = solidFor(nx, pr.y, pr.team), hy = solidFor(pr.x, ny, pr.team);
         if (hx || !hy) pr.vx *= -0.45;
         if (hy || !hx) pr.vy *= -0.45;
         pr.vx *= 0.85;
-      } else { explode(nx, ny, w); pr.dead = true; return; }
+      } else { explode(nx, ny, w, pr.team); pr.dead = true; return; }
     } else { pr.x = nx; pr.y = ny; }
-    if (w.fuse && pr.t >= w.fuse) { explode(pr.x, pr.y, w); pr.dead = true; return; }
+    if (w.fuse && pr.t >= w.fuse) { explode(pr.x, pr.y, w, pr.team); pr.dead = true; return; }
     if (w.cluster && pr.vy > 0 && pr.t > 0.25) {
       pr.dead = true;
-      for (let k = 0; k < w.cluster; k++) projs.push({ w: BOMBLET, x: pr.x, y: pr.y, vx: pr.vx * 0.5 + rand(-240, 240), vy: rand(-180, 40), t: 1, owner: null });
+      for (let k = 0; k < w.cluster; k++) projs.push({ w: BOMBLET, team: pr.team, x: pr.x, y: pr.y, vx: pr.vx * 0.5 + rand(-240, 240), vy: rand(-180, 40), t: 1, owner: null });
       parts.push({ type: 'flash', x: pr.x, y: pr.y, r: 30, t: 0, life: 0.25 });
     }
   }
-  function simulate(a, p, w, maxT, pts) {
+  function simulate(a, p, w, maxT, pts, target) {
     const sx = active.x, sy = active.y - 26, dx = Math.cos(a), dy = Math.sin(a), sp = w.speed * (0.25 + 0.75 * p);
     let x = sx + dx * 20, y = sy + dy * 20, vx = dx * sp, vy = dy * sp, t = 0, k = 0;
     const st = 1 / 120;
@@ -1335,56 +1402,65 @@ function createFort(ps) {
       vy += G * w.grav * st; vx += wind * st * (w.id === 'bz' ? 0.3 : 1); x += vx * st; y += vy * st; t += st; k++;
       if (pts && k % 5 === 0) pts.push([x, y]);
       if (x < -100 || x > W + 100 || y > H) return { x, y, out: true };
-      if (solidPx(x, y)) return { x, y };
-      for (const s of soldiers()) if (s.alive && s !== active && Math.abs(x - s.x) < 13 && y > s.y - 36 && y < s.y + 2) return { x, y };
+      if (target && Math.hypot(x - target.x, y - target.y) < 26) return { x, y };
+      if (solidFor(x, y, turnSide)) return { x, y };
+      for (const s of soldiers()) if (s.alive && s.side !== turnSide && Math.abs(x - s.x) < 13 && y > s.y - 36 && y < s.y + 2) return { x, y };
     }
     return { x, y };
   }
   function planBot() {
-    const enemies = alive(turnSide === 'L' ? 'R' : 'L');
-    const target = enemies[Math.floor(Math.random() * enemies.length)];
+    let tx, ty, crate = null;
+    if (crates.length && Math.random() < 0.3) { crate = crates[Math.floor(Math.random() * crates.length)]; tx = crate.x; ty = crate.y; }
+    else { const enemies = alive(other(turnSide)); const target = enemies[Math.floor(Math.random() * enemies.length)]; tx = target.x; ty = target.y - 17; }
     const opts = [0, 1, 2, 4].filter(i => active.ammo[i] > 0);
-    wsel = opts.length && Math.random() < 0.8 ? opts[Math.floor(Math.random() * opts.length)] : 3;
-    const w = WEAPONS[wsel], tx = target.x, ty = target.y - 17;
+    wsel = doubleNow && active.ammo[0] > 0 ? 0 : opts.length && Math.random() < 0.8 ? opts[Math.floor(Math.random() * opts.length)] : 3;
+    const w = WEAPONS[wsel];
     if (w.hitscan) return { a: Math.atan2(ty - (active.y - 26), tx - active.x) + rand(-0.02, 0.02), p: 1 };
     let best = null;
     for (let k = 0; k < 160; k++) {
       const a = turnSide === 'L' ? rand(-1.45, 0.1) : rand(-Math.PI - 0.1, -Math.PI + 1.45), p = rand(0.3, 1);
-      const r = simulate(a, p, w, 4), d = Math.hypot(r.x - tx, r.y - ty);
+      const r = simulate(a, p, w, 4, null, crate ? { x: tx, y: ty } : null), d = Math.hypot(r.x - tx, r.y - ty);
       if (!best || d < best.d) best = { a, p, d };
     }
-    return { a: best.a + rand(-0.03, 0.03), p: clamp(best.p + rand(-0.04, 0.04), 0, 1) };
+    return { a: best.a + rand(-0.025, 0.025), p: clamp(best.p + rand(-0.035, 0.035), 0, 1) };
   }
   function nextTurn(first) {
-    if (!first) turnSide = turnSide === 'L' ? 'R' : 'L';
+    if (!first) turnSide = other(turnSide);
     const T = teams[turnSide];
     let i = T.idx; do { i = (i + 1) % T.soldiers.length; } while (!T.soldiers[i].alive); T.idx = i;
     active = T.soldiers[i];
     ctrl = T.players.length ? T.players[T.turns % T.players.length] : cpu;
     T.turns++; totalTurns++;
+    doubleNow = false;
+    if (T.pendingDouble) { T.pendingDouble = false; doubleNow = true; active.ammo[0] = Math.max(1, active.ammo[0]); wsel = 0; }
     if (!(active.ammo[wsel] > 0)) wsel = active.ammo.findIndex(a => a > 0);
     aim = { a: turnSide === 'L' ? -0.75 : -Math.PI + 0.75, p: 0.6 };
     wind = Math.round(rand(-140, 140)); timer = 30; phase = 'aim'; botT = 0; botPlan = null;
-    banner = { text: `${teamName(turnSide)} · חייל ${active.n}`, t: 1.8, color: T.color };
+    if (!first && crates.length < 3 && Math.random() < 0.6) spawnCrate();
+    banner = { text: `${teamName(turnSide)} · חייל ${active.n}${doubleNow ? ' · 🚀×2' : ''}`, t: 1.8, color: T.color };
     syncControllers();
   }
   function finish() {
     const aL = alive('L').length, aR = alive('R').length;
-    let w = aL === aR ? (alive('L').reduce((a, s) => a + s.hp, 0) >= alive('R').reduce((a, s) => a + s.hp, 0) ? 'L' : 'R') : aL > aR ? 'L' : 'R';
-    const lose = w === 'L' ? 'R' : 'L';
+    const hp = s => alive(s).reduce((a, x) => a + x.hp, 0);
+    const w = aL === aR ? (hp('L') >= hp('R') ? 'L' : 'R') : aL > aR ? 'L' : 'R', lose = other(w);
     const res = [];
     if (!teams[w].players.length) res.push({ p: { name: 'המחשב', color: '#adb5bd', bot: true }, label: `ניצחון · ${alive(w).length} חיילים שרדו` });
     teams[w].players.forEach(p => res.push({ p, label: `ניצחון! · ${alive(w).length} חיילים שרדו` }));
     teams[lose].players.forEach(p => res.push({ p, label: `${alive(lose).length} חיילים שרדו` }));
     g.result = res;
   }
+  recomputeSupport();
   nextTurn(true);
+  banner = { text: `🏰 ${teams.L.fort.name}  נגד  ${teams.R.fort.name}`, t: 2.5, color: '#fff' };
 
   const g = {
+    dbg: () => ({ anyFalling, teams, crates, projs, cells, phase, active, turnSide, fire, collect, spawnCrate, setAim: (a, p, w) => { aim = { a, p }; wsel = w; }, MAT }),
     uiFor(p) {
       const my = teams.L.players.includes(p) ? 'L' : teams.R.players.includes(p) ? 'R' : null;
       if (!my) return null;
-      if (phase === 'aim' && ctrl === p) return { ui: 'fort', title: `חייל ${active.n} – תורך! 🎯`, sel: wsel, weapons: WEAPONS.map((w, i) => ({ icon: w.icon, name: w.name, ammo: active.ammo[i] })) };
+      if (phase === 'aim' && ctrl === p) return { ui: 'fort', title: `חייל ${active.n} – תורך! 🎯${doubleNow ? ' · הבזוקה יורה פעמיים!' : ''}`, sel: wsel,
+        weapons: WEAPONS.map((w, i) => ({ icon: w.icon, name: i === 0 && doubleNow ? 'בזוקה ×2' : w.name, ammo: active.ammo[i] })) };
       if (turnSide === my) return { ui: 'wait', text: phase === 'aim' ? `${ctrl.name} מכוון/ת עם חייל ${active.n}…` : '💥 בוווום!' };
       return { ui: 'wait', text: phase === 'aim' ? 'האויב מכוון… תתכוננו 😬' : '💥 בוווום!' };
     },
@@ -1397,6 +1473,7 @@ function createFort(ps) {
     update(dt) {
       if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
       shake = Math.max(0, shake - dt * 2);
+      for (const c of crates) c.t += dt;
       if (phase === 'aim') {
         timer -= dt;
         if (ctrl === cpu || ctrl.bot) {
@@ -1407,6 +1484,7 @@ function createFort(ps) {
         } else if (!ctrl.connected) timer = Math.min(timer, 3);
         if (phase === 'aim' && timer <= 0) { phase = 'fly'; settleT = 0; syncControllers(); }
       }
+      for (let i = pending.length - 1; i >= 0; i--) { const q = pending[i]; q.t -= dt; if (q.t <= 0) { pending.splice(i, 1); if (q.owner.alive) launch(q.w, q.a, q.p, q.team, q.owner); } }
       const sub = 4, sdt = dt / sub;
       for (let k = 0; k < sub; k++) for (const pr of projs) if (!pr.dead) stepProj(pr, sdt);
       for (let i = projs.length - 1; i >= 0; i--) if (projs[i].dead) projs.splice(i, 1);
@@ -1420,7 +1498,7 @@ function createFort(ps) {
         if (s.vx && solidPx(nx + Math.sign(s.vx) * 8, s.y - 17)) { nx = s.x; s.vx *= -0.2; }
         if (s.vy > 0 && solidPx(nx, ny)) {
           ny = ny >= GROUND * CS ? GROUND * CS : Math.floor(ny / CS) * CS;
-          if (s.vy > 700) hurt(s, (s.vy - 700) / 6);
+          if (s.vy > 600) hurt(s, (s.vy - 600) / 4);
           s.vy = 0; s.vx *= 0.55; if (Math.abs(s.vx) < 25) s.vx = 0;
         } else if (s.vy < 0 && solidPx(nx, ny - 34)) { s.vy = 0; ny = s.y; }
         s.x = nx; s.y = ny;
@@ -1436,7 +1514,7 @@ function createFort(ps) {
       for (let i = parts.length - 1; i >= 0; i--) if (parts[i].t > parts[i].life) parts.splice(i, 1);
       for (let i = tracers.length - 1; i >= 0; i--) { tracers[i].t += dt; if (tracers[i].t > 0.35) tracers.splice(i, 1); }
       if (phase === 'fly') {
-        if (!projs.length && !anyFalling && !moving && !tracers.length) settleT += dt; else settleT = 0;
+        if (!projs.length && !pending.length && !anyFalling && !moving && !tracers.length) settleT += dt; else settleT = 0;
         if (settleT > 0.9) {
           if (!alive('L').length || !alive('R').length || totalTurns >= 60) finish();
           else nextTurn(false);
@@ -1453,19 +1531,46 @@ function createFort(ps) {
       ctx.lineTo(W, GROUND * CS); ctx.fill();
       ctx.fillStyle = '#5c8a3a'; ctx.fillRect(-20, GROUND * CS, W + 40, 18);
       ctx.fillStyle = '#7a5230'; ctx.fillRect(-20, GROUND * CS + 18, W + 40, H);
+      const see = phase === 'aim' || phase === 'fly';
       for (let y = 0; y < GROUND; y++) for (let x = 0; x < GW; x++) {
         const c = cells[y * GW + x]; if (!c) continue;
         const m = MAT[c.m], px = x * CS, py = y * CS;
-        ctx.globalAlpha = c.m === 'G' ? 0.7 : 1;
+        const ghost = see && c.team === turnSide;   // your own building turns see-through on your turn
+        ctx.globalAlpha = (c.m === 'G' ? 0.7 : 1) * (ghost ? 0.35 : 1);
         ctx.fillStyle = m.c; ctx.fillRect(px, py, CS, CS);
-        ctx.globalAlpha = 1;
         ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = 2; ctx.strokeRect(px + 1, py + 1, CS - 2, CS - 2);
-        if (c.m === 'W') { ctx.strokeStyle = 'rgba(0,0,0,.15)'; ctx.beginPath(); ctx.moveTo(px + 3, py + 10); ctx.lineTo(px + CS - 3, py + 10); ctx.moveTo(px + 3, py + 20); ctx.lineTo(px + CS - 3, py + 20); ctx.stroke(); }
-        if (c.m === 'B') { ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.beginPath(); ctx.moveTo(px, py + 15); ctx.lineTo(px + CS, py + 15); ctx.moveTo(px + 15, py); ctx.lineTo(px + 15, py + 15); ctx.stroke(); }
+        if (c.m === 'W') { ctx.strokeStyle = 'rgba(0,0,0,.15)'; ctx.beginPath(); ctx.moveTo(px + 3, py + 11); ctx.lineTo(px + CS - 3, py + 11); ctx.moveTo(px + 3, py + 23); ctx.lineTo(px + CS - 3, py + 23); ctx.stroke(); }
+        if (c.m === 'B') { ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.beginPath(); ctx.moveTo(px, py + 17); ctx.lineTo(px + CS, py + 17); ctx.moveTo(px + 17, py); ctx.lineTo(px + 17, py + 17); ctx.stroke(); }
         if (c.m === 'T') { ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(px + 4, py + 4, 4, 4); ctx.fillRect(px + CS - 8, py + CS - 8, 4, 4); }
         if (c.m === 'G') { ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.moveTo(px + 6, py + CS - 6); ctx.lineTo(px + CS - 8, py + 8); ctx.stroke(); }
         const dmg = 1 - c.hp / c.max;
         if (dmg > 0.05) { ctx.fillStyle = `rgba(0,0,0,${dmg * 0.5})`; ctx.fillRect(px, py, CS, CS); }
+        ctx.globalAlpha = 1;
+      }
+      // shields & trampolines
+      for (const side of ['L', 'R']) {
+        const TM = teams[side], topY = (TM.top - 2) * CS;
+        if (TM.shield) {
+          const bx = barrierX(side, 'shield'), pulse = 0.5 + 0.2 * Math.sin(performance.now() / 200);
+          ctx.fillStyle = `rgba(116,192,252,${pulse * 0.5})`; ctx.fillRect(bx - 8, topY, 16, GROUND * CS - topY);
+          ctx.strokeStyle = '#74c0fc'; ctx.lineWidth = 3; ctx.strokeRect(bx - 8, topY, 16, GROUND * CS - topY);
+          T('🛡️' + TM.shield.hp, bx, topY - 22, 26);
+        }
+        if (TM.tramp) {
+          const bx = barrierX(side, 'tramp');
+          ctx.fillStyle = '#e64980'; ctx.fillRect(bx - 5, topY, 10, GROUND * CS - topY);
+          for (let yy = topY; yy < GROUND * CS; yy += 26) { ctx.fillStyle = '#ffd43b'; ctx.fillRect(bx - 7, yy, 14, 8); }
+          T('🔁' + TM.tramp.uses, bx, topY - 22, 26);
+        }
+      }
+      // crates with balloons
+      for (const c of crates) {
+        const y = c.y + Math.sin(c.t * 2) * 8;
+        ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(c.x, y - 24); ctx.lineTo(c.x, y - 60); ctx.stroke();
+        ctx.fillStyle = '#ff6b6b'; ctx.beginPath(); ctx.ellipse(c.x, y - 76, 18, 22, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#c99a5b'; rrect(c.x - 24, y - 24, 48, 48, 6); ctx.fill();
+        ctx.strokeStyle = '#7a5230'; ctx.lineWidth = 3; ctx.stroke();
+        T(c.type.icon, c.x, y + 2, 28);
       }
       if (phase === 'aim' && active) {
         const w = WEAPONS[wsel];
@@ -1474,7 +1579,7 @@ function createFort(ps) {
           ctx.beginPath(); ctx.moveTo(active.x, active.y - 26); ctx.lineTo(active.x + Math.cos(aim.a) * 600, active.y - 26 + Math.sin(aim.a) * 600); ctx.stroke(); ctx.setLineDash([]);
         } else if (w) {
           const pts = []; simulate(aim.a, aim.p, w, 0.75, pts);
-          pts.forEach(([x, y], k) => { ctx.fillStyle = `rgba(255,255,255,${0.9 - k / pts.length * 0.7})`; ctx.beginPath(); ctx.arc(x, y, 6 - k / pts.length * 3, 0, Math.PI * 2); ctx.fill(); });
+          pts.forEach(([x, y], k) => { ctx.fillStyle = `rgba(255,255,255,${0.95 - k / pts.length * 0.7})`; ctx.beginPath(); ctx.arc(x, y, 6 - k / pts.length * 3, 0, Math.PI * 2); ctx.fill(); });
         }
       }
       for (const s of soldiers()) {
@@ -1485,17 +1590,17 @@ function createFort(ps) {
         ctx.fillStyle = '#f1c27d'; ctx.beginPath(); ctx.arc(x, y - 32, 8, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#3d4a2a'; ctx.beginPath(); ctx.arc(x, y - 34, 9, Math.PI, 0); ctx.fill();
         ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x - 15, y - 52, 30, 6);
-        ctx.fillStyle = s.hp > 50 ? '#51cf66' : s.hp > 25 ? '#fcc419' : '#ff6b6b'; ctx.fillRect(x - 15, y - 52, 30 * s.hp / 100, 6);
+        ctx.fillStyle = s.hp > MAXHP / 2 ? '#51cf66' : s.hp > MAXHP / 4 ? '#fcc419' : '#ff6b6b'; ctx.fillRect(x - 15, y - 52, 30 * s.hp / MAXHP, 6);
         T(s.n, x, y - 15, 13, '#fff');
         if (s === active && phase === 'aim') T('▼', x, y - 70 + Math.sin(performance.now() / 150) * 5, 30, col);
       }
       for (const pr of projs) {
         const id = pr.w.id;
-        if (id === 'bz') {
+        if (id === 'bz' || id === 'rn') {
           const a = Math.atan2(pr.vy, pr.vx);
           ctx.save(); ctx.translate(pr.x, pr.y); ctx.rotate(a);
           ctx.fillStyle = '#ff922b'; ctx.beginPath(); ctx.moveTo(-14, -5); ctx.lineTo(-30 - Math.random() * 10, 0); ctx.lineTo(-14, 5); ctx.fill();
-          ctx.fillStyle = '#495057'; ctx.fillRect(-14, -5, 26, 10); ctx.fillStyle = '#e03131'; ctx.beginPath(); ctx.moveTo(12, -5); ctx.lineTo(20, 0); ctx.lineTo(12, 5); ctx.fill();
+          ctx.fillStyle = id === 'rn' ? '#862e9c' : '#495057'; ctx.fillRect(-14, -5, 26, 10); ctx.fillStyle = '#e03131'; ctx.beginPath(); ctx.moveTo(12, -5); ctx.lineTo(20, 0); ctx.lineTo(12, 5); ctx.fill();
           ctx.restore();
         } else {
           ctx.fillStyle = id === 'gr' ? '#2b8a3e' : id === 'mo' ? '#212529' : id === 'bl' ? '#e8590c' : '#c92a2a';
@@ -1516,17 +1621,19 @@ function createFort(ps) {
       // HUD
       [['L', 40, 'left'], ['R', W - 40, 'right']].forEach(([side, x, al]) => {
         const T_ = teams[side];
-        T(teamName(side), x, 40, 34, T_.color, al);
-        T(`👥 ${alive(side).length}/10`, x, 84, 30, '#fff', al);
+        T(teamName(side), x, 36, 34, T_.color, al);
+        T(`👥 ${alive(side).length}/10 · 🏠 ${T_.fort.name}`, x, 78, 26, '#fff', al);
+        const b = [T_.pendingDouble || (doubleNow && side === turnSide) ? '🚀×2' : '', T_.shield ? '🛡️' + T_.shield.hp : '', T_.tramp ? '🔁' + T_.tramp.uses : ''].filter(Boolean).join('  ');
+        if (b) T(b, x, 116, 26, '#fff', al);
       });
       const w = WEAPONS[wsel];
-      T(phase === 'aim' ? `⏱ ${Math.max(0, Math.ceil(timer))}` : '', W / 2, 40, 38, timer < 6 ? '#ff6b6b' : '#fff');
-      if (phase === 'aim' && w) T(`${w.icon} ${w.name}${w.ammo < 99 ? ` (${active.ammo[wsel]})` : ''}`, W / 2, 90, 32, '#fff');
-      T(`רוח ${wind < 0 ? '←' : '→'} ${Math.abs(wind)}`, W / 2, 132, 24, 'rgba(255,255,255,.85)');
+      T(phase === 'aim' ? `⏱ ${Math.max(0, Math.ceil(timer))}` : '', W / 2, 36, 38, timer < 6 ? '#ff6b6b' : '#fff');
+      if (phase === 'aim' && w) T(`${w.icon} ${w.name}${w.id === 'bz' && doubleNow ? ' ×2' : ''}${w.ammo < 99 ? ` (${active.ammo[wsel]})` : ''}`, W / 2, 84, 32, '#fff');
+      T(`רוח ${wind < 0 ? '←' : '→'} ${Math.abs(wind)}`, W / 2, 124, 24, 'rgba(255,255,255,.85)');
       if (banner) {
         ctx.globalAlpha = Math.min(1, banner.t * 2);
-        rrect(W / 2 - 400, 380, 800, 110, 30); ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fill();
-        T(banner.text, W / 2, 435, 50, banner.color);
+        rrect(W / 2 - 480, 330, 960, 110, 30); ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fill();
+        T(banner.text, W / 2, 385, 48, banner.color);
         ctx.globalAlpha = 1;
       }
     },
@@ -1668,7 +1775,7 @@ const GAMES = [
   { id: 'sumo', name: 'סומו', icon: '💥', desc: 'דוחפים את כולם מהזירה · 1–8', create: createSumo },
   { id: 'ships', name: 'צוללות', icon: '🚢', desc: 'מטביעים את הצי של היריב · 1–2', create: createShips },
   { id: 'checkers', name: 'דמקה', icon: '⚫', desc: 'הקלאסיקה – אחד על אחד · 1–2', create: createCheckers },
-  { id: 'fort', name: 'מלחמת מבצרים', icon: '🏰', desc: '10 חיילים, 5 כלי נשק, הורסים בתים · 1–8', create: createFort },
+  { id: 'fort', name: 'מלחמת מבצרים', icon: '🏰', desc: '10 מבנים, 5 כלי נשק ובונוסים · 1–8', create: createFort },
 ];
 
 renderLobby();
