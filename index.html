@@ -253,10 +253,11 @@ let last = performance.now();
 function loop(t) {
   const dt = Math.min(0.05, (t - last) / 1000); last = t;
   if (state === 'game' && current) {
-    if (current.cd > 0) current.cd -= dt; else current.update(dt);
-    ctx.save(); current.draw(); ctx.restore();
-    if (current.cd > 0) drawCountdown(current.cd);
-    if (current.result) finishGame(current.result);
+    try {
+      if (current.cd > 0) current.cd -= dt; else current.update(dt);
+      if (current.result) finishGame(current.result);   // go straight to the results – don't draw a frame past the end
+      else { ctx.save(); current.draw(); ctx.restore(); if (current.cd > 0) drawCountdown(current.cd); }
+    } catch (e) { console.error(e); ctx.restore(); }
   } else if (state === 'results') {
     drawResults(t);
     if (t > resultsUntil) backToLobby();
@@ -636,9 +637,8 @@ function createQuiz(ps) {
     for (const p of scores.keys()) { sendUI(p, g.uiFor(p)); const a = answers.get(p); send(p, { t: 'buzz', ms: a && a.pts ? [50, 40, 50] : 200 }); }
   }
   function next() {
-    i++;
-    if (i >= qs.length) { g.result = [...scores].sort((a, b) => b[1] - a[1]).map(([p, s]) => ({ p, label: `${s.toLocaleString()} נק׳` })); return; }
-    phase = 'q'; t = 0; answers = new Map();
+    if (i + 1 >= qs.length) { g.result = [...scores].sort((a, b) => b[1] - a[1]).map(([p, s]) => ({ p, label: `${s.toLocaleString()} נק׳` })); return; }
+    i++; phase = 'q'; t = 0; answers = new Map();
     for (const p of scores.keys()) sendUI(p, g.uiFor(p));
   }
   const g = {
@@ -2124,6 +2124,352 @@ function createRace(ps) {
   return g;
 }
 
+// ====================================================================== GAME 11: shadow fight (1-on-1 silhouette brawler)
+function createFight(ps) {
+  const GY = 905, S = 1.55, L = 50 * S, SPEED = 400, JUMP = 1250, GRAV = 3100, ROUND_T = 60;
+  const ATK = {
+    p: { st: 0.07, ac: 0.08, rc: 0.16, range: 135, dmg: 5, kb: 260, hs: 0.24, pose: 'punch' },
+    u: { st: 0.09, ac: 0.1, rc: 0.3, range: 125, dmg: 9, kb: 300, up: 950, hs: 0.55, pose: 'upper' },
+    k: { st: 0.13, ac: 0.1, rc: 0.26, range: 180, dmg: 9, kb: 480, hs: 0.32, pose: 'kick' },
+    a: { st: 0.06, ac: 0.24, rc: 0.08, range: 160, dmg: 8, kb: 420, up: 250, hs: 0.3, pose: 'airkick' },
+    s: { st: 0.12, ac: 0.34, rc: 0.35, range: 150, dmg: 20, kb: 950, up: 650, hs: 0.75, pose: 'special', dash: 1250 },
+  };
+  const POSES = {
+    idle: { lean: 0.1, aB: [0.5, 2.3], aF: [0.8, 2.5], lB: [-0.35, -0.1], lF: [0.45, 0.2] },
+    block: { lean: -0.08, aB: [1.0, 2.9], aF: [1.3, 3.0], lB: [-0.4, -0.15], lF: [0.4, 0.2] },
+    punch: { lean: 0.25, aB: [0.2, 1.9], aF: [1.5, 1.55], lB: [-0.5, -0.25], lF: [0.55, 0.3] },
+    upper: { lean: -0.15, aB: [0.3, 1.8], aF: [2.7, 3.0], lB: [-0.3, -0.1], lF: [0.5, 0.2] },
+    kick: { lean: -0.4, aB: [-0.6, 0.3], aF: [0.4, 1.6], lB: [-0.15, -0.1], lF: [1.55, 1.6] },
+    airkick: { lean: -0.3, aB: [-0.4, 0.5], aF: [0.5, 1.8], lB: [0.2, -0.9], lF: [1.4, 1.5] },
+    jump: { lean: 0.1, aB: [0.8, 2.4], aF: [1.1, 2.6], lB: [0.3, -0.7], lF: [1.2, 0.1] },
+    hurt: { lean: -0.45, aB: [-0.7, -0.3], aF: [-0.4, 0.2], lB: [-0.3, -0.1], lF: [0.35, 0.2] },
+    special: { lean: 0.55, aB: [-0.6, -0.3], aF: [1.57, 1.57], lB: [-1.1, -0.7], lF: [0.9, 0.5] },
+  };
+  const clonePose = p => ({ lean: p.lean, aB: p.aB.slice(), aF: p.aF.slice(), lB: p.lB.slice(), lF: p.lF.slice() });
+
+  // ---------- who fights: 2 players = best of 3; 3+ = winner stays on, first to 3 wins
+  const humans = ps.slice();
+  const solo = humans.length === 1;
+  const cpu = Object.assign(makeBot('צל'), { color: '#adb5bd' });
+  const queue = solo ? [humans[0], cpu] : shuffle(humans.slice());
+  const wins = new Map(queue.map(p => [p, 0]));
+  const KING = queue.length >= 3, NEED_ROUNDS = KING ? 1 : 2, NEED_WINS = 3;
+  let fA = null, fB = null, round = 1, phase = 'intro', pt = 0, timer = ROUND_T, matches = 0;
+  let hitstop = 0, slowmo = 0, shake = 0, banner = null, t = 0;
+  const fx = [];
+
+  function makeFighter(p, side) {
+    return { p, x: side < 0 ? 640 : W - 640, y: GY, vx: 0, vy: 0, face: side < 0 ? 1 : -1, hp: 100, en: 0, st: 'idle', stT: 0,
+      atk: null, atkT: 0, hit: false, mx: 0, blk: false, pc: 0, pcT: 0, pose: clonePose(POSES.idle), walkT: 0, flash: 0, koRot: 0,
+      rw: 0, ai: { t: 0, blockT: 0, plan: null } };
+  }
+  function startMatch() {
+    const a = queue[0], b = queue[1];
+    fA = makeFighter(a, -1); fB = makeFighter(b, 1);
+    round = 1; startRound();
+  }
+  function startRound() {
+    for (const [f, side] of [[fA, -1], [fB, 1]]) Object.assign(f, makeFighter(f.p, side), { rw: f.rw });
+    phase = 'intro'; pt = 0; timer = ROUND_T; fx.length = 0;
+    banner = { text: KING && round === 1 ? `${fA.p.name} נגד ${fB.p.name}` : `סיבוב ${round}`, t: 1.4 };
+    syncControllers();
+  }
+  const fighters = () => [fA, fB];
+  const foe = f => f === fA ? fB : fA;
+  const grounded = f => f.y >= GY - 0.5;
+
+  function press(f, b) {
+    if (phase !== 'fight' || f.st === 'ko' || f.st === 'hurt') return;
+    if (b === 'jump') { if (grounded(f) && (f.st === 'idle' || f.st === 'walk')) { f.vy = -JUMP; f.vx = f.mx * SPEED; f.st = 'jump'; Music.sfx('click'); } return; }
+    if (f.st === 'atk' || f.st === 'block') return;
+    let id = b;
+    if (b === 's') { if (f.en < 100) return; f.en = 0; }
+    if (!grounded(f)) { if (b === 's') id = 's'; else id = 'a'; }
+    else if (b === 'p') { if (f.pcT > 0 && f.pc >= 2) { id = 'u'; f.pc = 0; } else f.pc = f.pcT > 0 ? f.pc + 1 : 1; }
+    f.atk = ATK[id]; f.atkId = id; f.atkT = 0; f.hit = false; f.st = 'atk';
+    if (id === 's') { Music.sfx('whoosh'); fx.push({ type: 'ring', x: f.x, y: f.y - 150, c: f.p.color, t: 0, life: 0.4 }); }
+  }
+  function hitCheck(f) {
+    const a = f.atk, o = foe(f);
+    if (f.hit || o.st === 'ko') return;
+    const dx = (o.x - f.x) * f.face;
+    if (dx < 10 || dx > a.range + 45 || Math.abs(o.y - f.y) > 190) return;
+    f.hit = true;
+    const blocked = o.st === 'block' && o.face === -f.face && grounded(o);
+    const mult = blocked ? (f.atkId === 's' ? 0.5 : 0.15) : 1;
+    const dmg = a.dmg * mult;
+    o.hp = Math.max(0, o.hp - dmg);
+    f.en = Math.min(100, f.en + a.dmg * 2.4); o.en = Math.min(100, o.en + a.dmg * 1.2);
+    const hy = f.y - 175 + (f.atkId === 'k' || f.atkId === 'a' ? 40 : 0);
+    if (blocked) {
+      o.vx = f.face * a.kb * 0.4; o.stT = 0.15;
+      fx.push({ type: 'spark', x: o.x - f.face * 30, y: hy, c: '#74c0fc', t: 0, life: 0.25 });
+      Music.sfx('click'); send(o.p, { t: 'buzz', ms: 20 });
+    } else {
+      o.st = 'hurt'; o.stT = a.hs; o.atk = null; o.vx = f.face * a.kb; if (a.up) o.vy = -a.up; o.flash = 0.08;
+      fx.push({ type: 'spark', x: o.x - f.face * 25, y: hy, c: '#fff3bf', t: 0, life: 0.3, big: f.atkId === 's' || f.atkId === 'u' });
+      hitstop = f.atkId === 's' ? 0.14 : 0.06; shake = Math.min(1, shake + a.dmg / 25);
+      Music.sfx(a.dmg >= 9 ? 'boom' : 'hit', 0.4); send(o.p, { t: 'buzz', ms: 60 }); send(f.p, { t: 'buzz', ms: 15 });
+    }
+    if (o.hp <= 0) ko(o);
+  }
+  function ko(o) {
+    o.st = 'ko'; o.vy = -700; o.vx = -o.face * 500;
+    phase = 'ko'; pt = 0; slowmo = 1.2; shake = 1;
+    banner = { text: 'נוקאאוט!', t: 2.2, big: true };
+    Music.sfx('boom', 1);
+    const w = foe(o); w.rw++;
+  }
+  function timeUp() {
+    phase = 'ko'; pt = 0;
+    const w = fA.hp === fB.hp ? null : fA.hp > fB.hp ? fA : fB;
+    if (w) w.rw++;
+    banner = { text: w ? `נגמר הזמן · ${w.p.name} מוביל/ה` : 'נגמר הזמן · תיקו', t: 2.2 };
+  }
+  function afterRound() {
+    let champ = fA.rw >= NEED_ROUNDS ? fA : fB.rw >= NEED_ROUNDS ? fB : null;
+    if (!champ && round >= 5) champ = fA.rw > fB.rw ? fA : fB.rw > fA.rw ? fB : fA.hp >= fB.hp ? fA : fB;   // endless draws: settle it
+    if (!champ) { round++; startRound(); return; }
+    matches++;
+    wins.set(champ.p, wins.get(champ.p) + 1);
+    const loser = foe(champ).p;
+    if (!KING || wins.get(champ.p) >= NEED_WINS || matches >= 12) {
+      g.result = [...wins].sort((a, b) => b[1] - a[1]).map(([p, w]) => ({ p, label: KING ? `${w} ניצחונות` : `${p === champ.p ? '🏆 ניצחון' : 'הפסד'}` }));
+      return;
+    }
+    // winner stays, loser goes to the back of the line
+    queue.splice(queue.indexOf(loser), 1); queue.push(loser);
+    queue.splice(queue.indexOf(champ.p), 1); queue.unshift(champ.p);
+    banner = { text: `👑 ${champ.p.name} נשאר/ת בזירה!`, t: 1.8 };
+    startMatch();
+  }
+
+  // ---------- computer opponent
+  function bot(f, dt) {
+    const o = foe(f), ai = f.ai, d = Math.abs(o.x - f.x);
+    ai.t -= dt; ai.blockT -= dt;
+    if (f.st === 'block' && ai.blockT <= 0) f.blk = false;
+    if (ai.t > 0) return;
+    ai.t = rand(0.1, 0.22);
+    if (o.st === 'atk' && d < 260 && Math.random() < 0.45) { f.blk = true; f.mx = 0; ai.blockT = 0.45; return; }
+    f.blk = false;
+    if (d > 175) { f.mx = Math.sign(o.x - f.x); if (Math.random() < 0.04) press(f, 'jump'); return; }
+    f.mx = 0;
+    const r = Math.random();
+    if (f.en >= 100 && r < 0.5) press(f, 's');
+    else if (r < 0.5) press(f, 'p');
+    else if (r < 0.8) press(f, 'k');
+    else if (r < 0.88) { f.mx = -Math.sign(o.x - f.x); ai.t = 0.3; }
+    else if (r < 0.93) press(f, 'jump');
+  }
+
+  function step(f, dt) {
+    const o = foe(f);
+    f.flash = Math.max(0, f.flash - dt); f.pcT = Math.max(0, f.pcT - dt);
+    if (f.st === 'ko') {
+      f.vy += GRAV * dt; f.x += f.vx * dt; f.y += f.vy * dt;
+      if (f.y >= GY) { f.y = GY; f.vy = 0; f.vx *= 0.85; }
+      f.koRot = Math.min(Math.PI / 2, f.koRot + dt * 5);
+      return;
+    }
+    const mx = phase === 'fight' ? f.mx : 0, blk = phase === 'fight' && f.blk;
+    if (f.p.bot && phase === 'fight') bot(f, dt);
+    const onG = grounded(f);
+    if (f.st === 'idle' || f.st === 'walk' || f.st === 'block') {
+      if (onG) f.face = o.x >= f.x ? 1 : -1;
+      if (blk && onG) { f.st = 'block'; f.vx *= Math.exp(-12 * dt); }
+      else { f.vx = mx * SPEED * (mx === f.face ? 1 : 0.8); f.st = mx ? 'walk' : 'idle'; }
+    } else if (f.st === 'atk') {
+      const a = f.atk; f.atkT += dt;
+      if (f.atkId === 's' && f.atkT < a.st + a.ac) f.vx = f.face * a.dash;
+      else if (onG) f.vx *= Math.exp(-14 * dt);
+      if (f.atkT >= a.st && f.atkT < a.st + a.ac) hitCheck(f);
+      if (f.atkT >= a.st + a.ac + a.rc || (f.atkId === 'a' && onG && f.atkT > a.st)) {
+        if (f.atkId === 'p') f.pcT = 0.45;
+        f.atk = null; f.st = onG ? 'idle' : 'jump';
+      }
+    } else if (f.st === 'hurt') {
+      f.stT -= dt; if (onG) f.vx *= Math.exp(-8 * dt);
+      if (f.stT <= 0 && onG) f.st = 'idle';
+    } else if (f.st === 'jump') {
+      f.vx += (mx * SPEED - f.vx) * Math.min(1, dt * 3);
+    }
+    if (!onG || f.vy < 0) { f.vy += GRAV * dt; }
+    f.x += f.vx * dt; f.y += f.vy * dt;
+    if (f.y >= GY) { if (f.vy > 600) fx.push({ type: 'dust', x: f.x, y: GY, t: 0, life: 0.4 }); f.y = GY; f.vy = 0; if (f.st === 'jump') f.st = 'idle'; }
+    f.x = clamp(f.x, 90, W - 90);
+    // pose blending
+    let target = POSES.idle;
+    if (f.st === 'atk') target = f.atkT < f.atk.st ? POSES.idle : POSES[f.atk.pose];
+    else if (f.st === 'block') target = POSES.block;
+    else if (f.st === 'hurt') target = POSES.hurt;
+    else if (f.st === 'jump' || !onG) target = POSES.jump;
+    let tp = target;
+    if (f.st === 'walk') {
+      f.walkT += dt * 9 * (f.vx * f.face >= 0 ? 1 : -1); const s_ = Math.sin(f.walkT);
+      tp = clonePose(POSES.idle); tp.lB = [-0.1 - s_ * 0.45, -0.1 - s_ * 0.3 + Math.max(0, s_) * 0.5]; tp.lF = [0.15 + s_ * 0.45, 0.15 + s_ * 0.3 + Math.max(0, -s_) * -0.5];
+    }
+    const k = Math.min(1, dt * (f.st === 'atk' ? 30 : 16)), P = f.pose;
+    P.lean += (tp.lean - P.lean) * k;
+    for (const key of ['aB', 'aF', 'lB', 'lF']) for (let j = 0; j < 2; j++) P[key][j] += (tp[key][j] - P[key][j]) * k;
+  }
+
+  const g = {
+    uiFor(p) {
+      const f = fA && fA.p === p ? fA : fB && fB.p === p ? fB : null;
+      if (f) return { ui: 'fight' };
+      if (!wins.has(p)) return null;
+      return { ui: 'wait', text: `⏳ הבא/ה בתור · עכשיו: ${fA.p.name} נגד ${fB.p.name}` };
+    },
+    input(p, m) {
+      const f = fA && fA.p === p ? fA : fB && fB.p === p ? fB : null; if (!f) return;
+      if (typeof m.mx === 'number') f.mx = clamp(m.mx | 0, -1, 1);
+      if (typeof m.block === 'number') f.blk = !!m.block;
+      if (m.b) press(f, m.b);
+    },
+    update(dt) {
+      t += dt;
+      if (banner) { banner.t -= dt; if (banner.t <= 0) banner = null; }
+      shake = Math.max(0, shake - dt * 2.5);
+      if (hitstop > 0) { hitstop -= dt; return; }
+      let sdt = dt;
+      if (slowmo > 0) { slowmo -= dt; sdt = dt * 0.3; }
+      pt += dt;
+      if (phase === 'intro' && pt > 1.6) { phase = 'fight'; pt = 0; banner = { text: 'קרב!', t: 0.9, big: true }; Music.sfx('boom', 0.6); }
+      if (phase === 'fight') { timer -= dt; if (timer <= 0) { timer = 0; timeUp(); } }
+      if (phase === 'ko' && pt > 2.8) { afterRound(); return; }
+      for (const f of fighters()) step(f, sdt);
+      // fighters can't walk through each other
+      const dx = fB.x - fA.x;
+      if (Math.abs(dx) < 85 && Math.abs(fA.y - fB.y) < 200 && fA.st !== 'ko' && fB.st !== 'ko') {
+        const push = (85 - Math.abs(dx)) / 2 * Math.sign(dx || 1);
+        fA.x = clamp(fA.x - push, 90, W - 90); fB.x = clamp(fB.x + push, 90, W - 90);
+      }
+      for (const e of fx) e.t += sdt;
+      for (let i = fx.length - 1; i >= 0; i--) if (fx[i].t > fx[i].life) fx.splice(i, 1);
+    },
+    draw() {
+      if (!g.bg) g.bg = paintDojo();
+      ctx.save();
+      if (shake > 0) ctx.translate(rand(-14, 14) * shake, rand(-8, 8) * shake);
+      ctx.drawImage(g.bg, 0, 0);
+      for (const f of fighters()) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(f.x, GY + 6, 70 * Math.max(0.4, 1 - (GY - f.y) / 600), 12, 0, 0, Math.PI * 2); ctx.fill(); }
+      for (const f of [fB, fA]) drawFighter(f);
+      for (const e of fx) {
+        const q = e.t / e.life;
+        if (e.type === 'spark') {
+          ctx.strokeStyle = e.c; ctx.lineWidth = e.big ? 7 : 5; ctx.globalAlpha = 1 - q;
+          const R = (e.big ? 90 : 55) * (0.4 + q);
+          for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2 + 0.3; ctx.beginPath(); ctx.moveTo(e.x + Math.cos(a) * R * 0.4, e.y + Math.sin(a) * R * 0.4); ctx.lineTo(e.x + Math.cos(a) * R, e.y + Math.sin(a) * R); ctx.stroke(); }
+          ctx.globalAlpha = 1;
+        } else if (e.type === 'ring') { ctx.strokeStyle = e.c; ctx.lineWidth = 8; ctx.globalAlpha = 1 - q; ctx.beginPath(); ctx.arc(e.x, e.y, 40 + q * 160, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+        else if (e.type === 'dust') { ctx.fillStyle = `rgba(80,60,60,${0.5 * (1 - q)})`; for (const s_ of [-1, 1]) { ctx.beginPath(); ctx.arc(e.x + s_ * (30 + q * 70), e.y - 10, 18 + q * 20, 0, Math.PI * 2); ctx.fill(); } }
+      }
+      ctx.restore();
+      // HUD: health & energy bars
+      for (const [f, side] of [[fA, -1], [fB, 1]]) {
+        const w = 760, x = side < 0 ? 60 : W - 60 - w, y = 40;
+        rrect(x - 6, y - 6, w + 12, 52, 16); ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fill();
+        const fr = f.hp / 100, bw = w * fr;
+        rrect(side < 0 ? x : x + w - bw, y, Math.max(0, bw), 40, 12); ctx.fillStyle = fr > 0.5 ? '#51cf66' : fr > 0.25 ? '#fcc419' : '#ff6b6b'; ctx.fill();
+        rrect(x, y + 56, w * 0.6, 14, 7); ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fill();
+        const ew = w * 0.6 * f.en / 100; rrect(side < 0 ? x : x + w * 0.4 + w * 0.6 - ew, y + 56, ew, 14, 7);
+        ctx.fillStyle = f.en >= 100 ? (Math.sin(t * 12) > 0 ? '#ffe066' : '#f59f00') : '#4dabf7'; ctx.fill();
+        T(f.p.name, side < 0 ? x + 10 : x + w - 10, y + 100, 38, f.p.color, side < 0 ? 'left' : 'right');
+        for (let k = 0; k < NEED_ROUNDS; k++) { ctx.fillStyle = k < f.rw ? '#ffd43b' : 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.arc(side < 0 ? x + w - 20 - k * 34 : x + 20 + k * 34, y + 100, 12, 0, Math.PI * 2); ctx.fill(); }
+        if (f.en >= 100) T('⚡ מיוחד מוכן!', side < 0 ? x + w * 0.6 + 20 : x + w * 0.4 - 20, y + 63, 22, '#ffe066', side < 0 ? 'left' : 'right');
+      }
+      rrect(W / 2 - 70, 26, 140, 80, 22); ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fill();
+      T(Math.ceil(timer), W / 2, 67, 54, timer < 10 ? '#ff6b6b' : '#fff');
+      if (KING) chips(queue.map(p => ({ p, text: '🏆' + wins.get(p), dim: p !== fA.p && p !== fB.p })), H - 40);
+      if (banner) {
+        const a = Math.min(1, banner.t * 3), sc = banner.big ? 1 + Math.max(0, banner.t - 1.6) * 0.8 : 1;
+        ctx.save(); ctx.globalAlpha = a; ctx.translate(W / 2, 400); ctx.scale(sc, sc);
+        ctx.lineWidth = 14; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.font = `900 ${banner.big ? 170 : 96}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.direction = 'rtl';
+        ctx.strokeText(banner.text, 0, 0); ctx.fillStyle = banner.big ? '#ffd43b' : '#fff'; ctx.fillText(banner.text, 0, 0);
+        ctx.restore();
+      }
+    },
+  };
+
+  // ---------- drawing
+  function paintDojo() {
+    const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+    const sky = x.createLinearGradient(0, 0, 0, GY); sky.addColorStop(0, '#2b1055'); sky.addColorStop(0.55, '#d1495b'); sky.addColorStop(1, '#ffb26b');
+    x.fillStyle = sky; x.fillRect(0, 0, W, H);
+    x.fillStyle = 'rgba(255,240,200,.9)'; x.beginPath(); x.arc(W / 2, 520, 230, 0, Math.PI * 2); x.fill();
+    x.fillStyle = 'rgba(255,240,200,.25)'; x.beginPath(); x.arc(W / 2, 520, 290, 0, Math.PI * 2); x.fill();
+    const ridge = (base, amp, col, f1, ph) => { x.fillStyle = col; x.beginPath(); x.moveTo(0, GY); for (let i = 0; i <= W; i += 20) x.lineTo(i, base - Math.abs(Math.sin(i / f1 + ph)) * amp - Math.sin(i / 47) * 10); x.lineTo(W, GY); x.fill(); };
+    ridge(700, 180, '#6b2d5c', 260, 0.5);
+    ridge(780, 120, '#3d1a3f', 190, 2);
+    // temple gate silhouette and lanterns
+    x.fillStyle = '#1a0b1c';
+    x.fillRect(W / 2 - 330, 560, 34, GY - 560); x.fillRect(W / 2 + 296, 560, 34, GY - 560);
+    x.beginPath(); x.moveTo(W / 2 - 420, 540); x.quadraticCurveTo(W / 2, 500, W / 2 + 420, 540); x.lineTo(W / 2 + 400, 572); x.quadraticCurveTo(W / 2, 535, W / 2 - 400, 572); x.fill();
+    x.fillRect(W / 2 - 360, 610, 720, 26);
+    for (const lx of [W / 2 - 560, W / 2 + 560]) { x.fillRect(lx - 6, GY - 230, 12, 230); x.fillStyle = '#ffb26b'; x.beginPath(); x.ellipse(lx, GY - 250, 30, 38, 0, 0, Math.PI * 2); x.fill(); x.fillStyle = '#1a0b1c'; }
+    // trees at the edges
+    for (const [tx, s] of [[120, 1.2], [W - 140, 1.1], [330, 0.8], [W - 360, 0.75]]) {
+      x.fillRect(tx - 10 * s, GY - 330 * s, 20 * s, 330 * s);
+      for (const [dx, dy, r] of [[0, -340, 90], [-70, -300, 70], [70, -290, 75], [0, -250, 80]]) { x.beginPath(); x.arc(tx + dx * s, GY + dy * s, r * s, 0, Math.PI * 2); x.fill(); }
+    }
+    // floor
+    const fl = x.createLinearGradient(0, GY, 0, H); fl.addColorStop(0, '#3a1f2b'); fl.addColorStop(1, '#120810');
+    x.fillStyle = fl; x.fillRect(0, GY, W, H - GY);
+    x.strokeStyle = 'rgba(255,178,107,.18)'; x.lineWidth = 2;
+    for (let i = -20; i <= 20; i++) { x.beginPath(); x.moveTo(W / 2 + i * 60, GY); x.lineTo(W / 2 + i * 160, H); x.stroke(); }
+    x.fillStyle = 'rgba(255,178,107,.35)'; x.fillRect(0, GY, W, 3);
+    return c;
+  }
+  function drawFighter(f) {
+    const P = f.pose, fc = f.face, onG = grounded(f);
+    const dir = a => [Math.sin(a) * fc, Math.cos(a)];
+    const legLen = l => L * (Math.cos(l[0]) + Math.cos(l[1]));
+    const hipH = f.st === 'ko' ? 2 * L * 0.95 : !onG ? L * 1.7 : Math.max(legLen(P.lB), legLen(P.lF), L * 1.2);
+    ctx.save();
+    ctx.translate(f.x, f.y);
+    if (f.koRot) ctx.rotate(-fc * f.koRot);
+    const hip = [0, -hipH];
+    const td = [Math.sin(P.lean) * fc, -Math.cos(P.lean)], TL = 72 * S;
+    const neck = [hip[0] + td[0] * TL, hip[1] + td[1] * TL], sh = [hip[0] + td[0] * TL * 0.88, hip[1] + td[1] * TL * 0.88];
+    const head = [neck[0] + td[0] * 24 * S, neck[1] + td[1] * 24 * S];
+    const limb = (o, a, len1, len2, w1, w2, col) => {
+      const d1 = dir(a[0]), d2 = dir(a[1]);
+      const m = [o[0] + d1[0] * len1, o[1] + d1[1] * len1], e = [m[0] + d2[0] * len2, m[1] + d2[1] * len2];
+      ctx.strokeStyle = col; ctx.lineCap = 'round';
+      ctx.lineWidth = w1; ctx.beginPath(); ctx.moveTo(o[0], o[1]); ctx.lineTo(m[0], m[1]); ctx.stroke();
+      ctx.lineWidth = w2; ctx.beginPath(); ctx.moveTo(m[0], m[1]); ctx.lineTo(e[0], e[1]); ctx.stroke();
+      return e;
+    };
+    const back = f.flash > 0 ? '#ddd' : '#1d1826', front = f.flash > 0 ? '#fff' : '#07060a';
+    if (f.st === 'atk' && f.atkId === 's') {   // shadow after-images
+      ctx.globalAlpha = 0.25; ctx.fillStyle = f.p.color;
+      for (let k = 1; k <= 3; k++) { ctx.beginPath(); ctx.ellipse(-fc * k * 45, -hipH - 40, 40, 110, P.lean * fc, 0, Math.PI * 2); ctx.fill(); }
+      ctx.globalAlpha = 1;
+    }
+    limb(hip, P.lB, L, L, 24, 20, back);
+    limb(sh, P.aB, 40 * S, 38 * S, 17, 15, back);
+    ctx.strokeStyle = front; ctx.lineCap = 'round'; ctx.lineWidth = 34; ctx.beginPath(); ctx.moveTo(hip[0], hip[1]); ctx.lineTo(sh[0], sh[1]); ctx.stroke();
+    ctx.fillStyle = front; ctx.beginPath(); ctx.arc(head[0], head[1], 23 * S, 0, Math.PI * 2); ctx.fill();
+    // headband in the player's colour with ribbons trailing behind
+    ctx.strokeStyle = f.p.color; ctx.lineWidth = 9; ctx.beginPath(); ctx.arc(head[0], head[1], 23 * S - 2, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke();
+    const wave = Math.sin(t * 10 + f.x * 0.01) * 12, bx = head[0] - fc * 30, by = head[1] - 14;
+    ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(bx, by); ctx.quadraticCurveTo(bx - fc * 30, by + wave, bx - fc * 70, by + 10 - wave); ctx.moveTo(bx, by + 4); ctx.quadraticCurveTo(bx - fc * 26, by + 18 + wave, bx - fc * 58, by + 30); ctx.stroke();
+    ctx.fillStyle = f.st === 'ko' ? '#888' : '#fff'; ctx.fillRect(head[0] + fc * 10 - 9, head[1] - 6, 18, 6);
+    limb(hip, P.lF, L, L, 26, 22, front);
+    const fist = limb(sh, P.aF, 40 * S, 38 * S, 19, 17, front);
+    ctx.fillStyle = front; ctx.beginPath(); ctx.arc(fist[0], fist[1], 12, 0, Math.PI * 2); ctx.fill();
+    // belt
+    ctx.strokeStyle = f.p.color; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(hip[0] - 18, hip[1] - 6); ctx.lineTo(hip[0] + 18, hip[1] - 6); ctx.stroke();
+    ctx.restore();
+    if (f.st !== 'ko') T(f.p.name, f.x, f.y - hipH - TL - 95, 30, f.p.color);
+  }
+
+  startMatch();
+  g.dbg = () => ({ fA, fB, get phase() { return phase; }, press, queue, wins });
+  return g;
+}
+
 // ====================================================================== music (generated live with Web Audio – original tunes, no files)
 const Music = (() => {
   let ac = null, master = null, noiseBuf = null, cur = null, step = 0, nextT = 0, enabled = true;
@@ -2182,6 +2528,9 @@ const Music = (() => {
     race: build({ bpm: 146, prog: ['E2m', 'C2', 'D2', 'B1'], bass: 'x8x8x8x8x8x8x8x8', bassWave: 'sawtooth', bassVol: .18, arp: '0.2.1.2.0.2.1.2.', arpWave: 'square', arpVol: .04,
       mel: 'E5 . G5 . B5 . A5 G5 | E5 . . . G5 . E5 . | F#5 . A5 . D6 . C6 . | B5 . . . D#5 . F#5 .', melWave: 'sawtooth', melVol: .06,
       drums: { k: 'x...x...x...x...', s: '....x.......x...', h: 'xxxxxxxxxxxxxxxx' } }),
+    fight: build({ bpm: 138, prog: ['A1m', 'A1m', 'F1', 'G1'], bass: 'x.x...x.x.x...o.', bassWave: 'sawtooth', bassVol: .2, arp: '................',
+      mel: 'A4 . C5 . E5 . D5 C5 | A4 . . . G4 . A4 . | C5 . D5 . E5 . G5 E5 | D5 . C5 . B4 . G4 .', melWave: 'square', melVol: .07,
+      drums: { k: 'x..x..x.x..x..x.', s: '....x.......x.xx', h: 'x.x.x.x.x.x.x.x.' } }),
     results: build({ bpm: 120, prog: ['C3', 'F2', 'G2', 'C3'], bass: 'x...o...x...o...', bassWave: 'triangle', bassVol: .5, arp: '0.1.2.1.0.1.2.1.', arpWave: 'triangle', arpVol: .1,
       mel: 'C5 . E5 . G5 . C6 . | A5 . F5 . A5 . C6 . | B5 . G5 . D6 . B5 . | C6 . . . . . . .', melWave: 'square', melVol: .09,
       drums: { k: 'x...x...x...x...', s: '....x.......x...' } }),
@@ -2267,6 +2616,7 @@ const GAMES = [
   { id: 'fort', name: 'מלחמת שכנים', icon: '🏡', desc: 'שתי קבוצות, 10 בתים, 5 כלי נשק ובונוסים · 1–8', create: createFort },
   { id: 'tower', name: 'מגדל', icon: '🏗️', desc: 'בונים הכי גבוה בלחיצה אחת, ומפריעים ליריבים · 1–8', create: createTower },
   { id: 'race', name: 'מרוץ', icon: '🏎️', desc: '5 הקפות, טורבו ומשטחי האצה · 1–8', create: createRace },
+  { id: 'fight', name: 'קרב צללים', icon: '🥋', desc: 'אחד על אחד: אגרופים, בעיטות, הגנה ומכה מיוחדת · 1–8', create: createFight },
 ];
 
 renderLobby();
