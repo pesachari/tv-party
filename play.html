@@ -64,23 +64,9 @@
 
   .extra { flex: 0 0 auto; padding: 18px; border-radius: 18px; font-size: 22px; font-weight: 800; background: linear-gradient(90deg, #fcc419, #f76707); color: #2b1600; }
   .extra:disabled { background: #ffffff14; color: #fff; opacity: .6; }
-  .race { flex: 1; display: flex; gap: 12px; direction: ltr; }
-  .steer { flex: 1; border-radius: 26px; background: #ffffff1c; font-size: 64px; }
-  .steer.on { background: #4dabf7; transform: scale(.98); }
-  .turbo { flex: 0 0 28%; border-radius: 26px; font-size: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: radial-gradient(circle at 35% 30%, #ffa94d, #e8590c); }
-  .turbo small { font-size: 16px; font-weight: 800; }
-  .turbo:disabled { opacity: .35; }
-  .fightpad { flex: 1; display: flex; gap: 12px; direction: ltr; min-height: 0; }
-  @media (orientation: portrait) { .fightpad { flex-direction: column-reverse; } }
-  .fmove { flex: 1; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-  .fact { flex: 1.2; display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: 10px; }
-  .fb { border-radius: 22px; background: #ffffff1c; font-size: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 70px; }
-  .fb small { font-size: 14px; font-weight: 800; }
-  .fb.on { background: #4dabf7; transform: scale(.96); }
-  .fb.atk { background: #c92a2a; } .fb.atk.on { background: #ff6b6b; }
-  .fb.blk { background: #1864ab; } .fb.blk.on { background: #4dabf7; }
-  .fb.sp { background: linear-gradient(135deg, #f59f00, #e8590c); } .fb.sp.on { filter: brightness(1.3); }
-  .fb.jump { background: #2b8a3e; }
+  .drawnow { text-align: center; font-size: 18px; } .drawnow b { font-size: 22px; }
+  .drawbox { flex: 1; border-radius: 26px; background: #ffffff12; border: 3px dashed #ffffff40; min-height: 0; position: relative; }
+  .drawbox canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
   .joy { flex: 1; display: flex; gap: 16px; align-items: center; justify-content: center; }
   @media (orientation: portrait) { .joy { flex-direction: column; } }
   .base { position: relative; width: min(78vw, 52vh); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(#ffffff10, #ffffff26); border: 3px solid #ffffff30; touch-action: none; }
@@ -302,32 +288,14 @@ const UI = {
     }
   },
 
-  race(pad, m) {
-    pad.appendChild(el('div', 'hint', 'החזיקו ⬅ / ➡ כדי לפנות · הרכב נוסע לבד · 🔥 טורבו'));
-    const row = el('div', 'race');
-    const L = el('button', 'steer', '⬅'), R = el('button', 'steer', '➡');
-    let left = 3; const tb = el('button', 'turbo', `🔥<small>טורבו ×${left}</small>`); tb.disabled = left <= 0;
-    left = m.turbo | 0; tb.innerHTML = `🔥<small>טורבו ×${left}</small>`; tb.disabled = left <= 0;
-    row.appendChild(L); row.appendChild(tb); row.appendChild(R); pad.appendChild(row);
-    const held = { L: new Set(), R: new Set() }; let last = 0;
-    const upd = () => { const s = (held.R.size ? 1 : 0) - (held.L.size ? 1 : 0); L.classList.toggle('on', held.L.size > 0); R.classList.toggle('on', held.R.size > 0); if (s !== last) { last = s; send({ t: 'in', steer: s }); buzz(8); } };
-    for (const [b, k] of [[L, 'L'], [R, 'R']]) {
-      b.addEventListener('pointerdown', e => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (x) {} held[k].add(e.pointerId); upd(); });
-      const off = e => { held[k].delete(e.pointerId); upd(); };
-      b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('lostpointercapture', off);
-    }
-    tb.addEventListener('pointerdown', e => { e.preventDefault(); if (left <= 0) return; left--; send({ t: 'in', turbo: 1 }); buzz(40); tb.innerHTML = `🔥<small>טורבו ×${left}</small>`; tb.disabled = left <= 0; });
-    cleanup.push(() => { if (last) send({ t: 'in', steer: 0 }); });
-  },
-
   fight(pad) {
-    pad.appendChild(el('div', 'hint', '3 אגרופים ברצף = אפרקאט · בעיטה באוויר · ⚡ כשהפס מלא'));
+    pad.appendChild(el('div', 'hint', '👊+🦵 ביחד = ⚡ מכה מיוחדת (כשהפס מלא) · 3 אגרופים ברצף = אפרקאט'));
     const box = el('div', 'fightpad');
     const mv = el('div', 'fmove'), ac = el('div', 'fact');
     const mk = (parent, cls, html) => { const b = el('button', cls, html); parent.appendChild(b); return b; };
-    const L = mk(mv, 'fb', '⬅'), J = mk(mv, 'fb jump', '⬆<small>קפיצה</small>'), R = mk(mv, 'fb', '➡');
-    const P = mk(ac, 'fb atk', '👊<small>אגרוף</small>'), K = mk(ac, 'fb atk', '🦵<small>בעיטה</small>');
-    const B = mk(ac, 'fb blk', '🛡️<small>הגנה (להחזיק)</small>'), Sp = mk(ac, 'fb sp', '⚡<small>מיוחד</small>');
+    // left thumb: arrows · right thumb: 3 action buttons
+    const J = mk(mv, 'fb jump up', '⬆'), L = mk(mv, 'fb left', '⬅'), R = mk(mv, 'fb right', '➡');
+    const B = mk(ac, 'fb blk', '🛡️<small>הגנה</small>'), K = mk(ac, 'fb atk kick', '🦵<small>בעיטה</small>'), P = mk(ac, 'fb atk punch', '👊<small>אגרוף</small>');
     box.appendChild(mv); box.appendChild(ac); pad.appendChild(box);
     const held = { L: new Set(), R: new Set(), B: new Set() }; let lastMx = 0, lastB = 0;
     const upd = () => {
@@ -341,10 +309,48 @@ const UI = {
       const off = e => { held[k].delete(e.pointerId); upd(); };
       btn.addEventListener('pointerup', off); btn.addEventListener('pointercancel', off); btn.addEventListener('lostpointercapture', off);
     }
-    for (const [btn, code] of [[J, 'jump'], [P, 'p'], [K, 'k'], [Sp, 's']]) btn.addEventListener('pointerdown', e => {
-      e.preventDefault(); send({ t: 'in', b: code }); buzz(15); btn.classList.add('on'); setTimeout(() => btn.classList.remove('on'), 110);
+    const lastHit = { p: 0, k: 0 };
+    for (const [btn, code] of [[J, 'jump'], [P, 'p'], [K, 'k']]) btn.addEventListener('pointerdown', e => {
+      e.preventDefault(); btn.classList.add('on'); setTimeout(() => btn.classList.remove('on'), 110);
+      if (code !== 'jump') {
+        const now = performance.now(), other = code === 'p' ? 'k' : 'p'; lastHit[code] = now;
+        if (now - lastHit[other] < 180) { send({ t: 'in', b: 's' }); buzz([20, 20, 40]); return; }   // both together = special
+      }
+      send({ t: 'in', b: code }); buzz(15);
     });
     cleanup.push(() => { if (lastMx) send({ t: 'in', mx: 0 }); if (lastB) send({ t: 'in', block: 0 }); });
+  },
+
+  dino(pad) {
+    pad.appendChild(el('div', 'hint', 'קופצים מעל קקטוסים · ציפור באמצע? מתכופפים · החזיקו ⬆ לקפיצה גבוהה'));
+    const J = el('button', 'dj', '⬆<small>קפיצה</small>'), D = el('button', 'dd', '⬇<small>התכופפות</small>');
+    pad.appendChild(J); pad.appendChild(D);
+    for (const [b, key] of [[J, 'jump'], [D, 'duck']]) {
+      const ids = new Set(); let on = 0;
+      const upd = () => { const v = ids.size ? 1 : 0; b.classList.toggle('on', !!v); if (v !== on) { on = v; send({ t: 'in', [key]: v }); if (v) buzz(12); } };
+      b.addEventListener('pointerdown', e => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (x) {} ids.add(e.pointerId); upd(); });
+      const off = e => { ids.delete(e.pointerId); upd(); };
+      b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('lostpointercapture', off);
+      cleanup.push(() => { if (on) send({ t: 'in', [key]: 0 }); });
+    }
+  },
+
+  draw(pad, m) {
+    pad.appendChild(el('div', 'hint', '⭕ עיגול = כביש · ➖ קו = מים · 🔺 משולש = מדרגות'));
+    pad.appendChild(el('div', 'drawnow', `הגלגלים שלך: <b>${esc(m.last || '')}</b> · ציירו חדש בכל רגע`));
+    const wrap = el('div', 'drawbox'), cvs = document.createElement('canvas'); wrap.appendChild(cvs); pad.appendChild(wrap);
+    const c2 = cvs.getContext('2d'); let pts = [], drawing = false;
+    const fit = () => { const r = wrap.getBoundingClientRect(), d = devicePixelRatio || 1; cvs.width = r.width * d; cvs.height = r.height * d; c2.setTransform(d, 0, 0, d, 0, 0); c2.lineWidth = 10; c2.lineCap = c2.lineJoin = 'round'; c2.strokeStyle = myColor || '#fff'; };
+    requestAnimationFrame(fit);
+    const pos = e => { const r = cvs.getBoundingClientRect(); return [(e.clientX - r.left), (e.clientY - r.top), r.width, r.height]; };
+    cvs.addEventListener('pointerdown', e => { e.preventDefault(); try { cvs.setPointerCapture(e.pointerId); } catch (x) {} drawing = true; pts = []; const r = cvs.getBoundingClientRect(); c2.clearRect(0, 0, r.width, r.height); const [x, y] = pos(e); pts.push([x, y]); c2.beginPath(); c2.moveTo(x, y); });
+    cvs.addEventListener('pointermove', e => { if (!drawing) return; const [x, y] = pos(e); const l = pts[pts.length - 1]; if (Math.hypot(x - l[0], y - l[1]) < 4) return; pts.push([x, y]); c2.lineTo(x, y); c2.stroke(); });
+    const end = e => {
+      if (!drawing) return; drawing = false;
+      const [, , w, h] = pos(e), s = Math.max(w, h);
+      if (pts.length >= 4) { const step = Math.max(1, Math.ceil(pts.length / 80)); send({ t: 'in', shape: pts.filter((_, i) => i % step === 0 || i === pts.length - 1).map(([x, y]) => [+(x / s).toFixed(3), +(y / s).toFixed(3)]) }); buzz(20); }
+    };
+    cvs.addEventListener('pointerup', end); cvs.addEventListener('pointercancel', end);
   },
 
   joystick(pad) {
