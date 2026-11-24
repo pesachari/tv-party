@@ -2758,6 +2758,220 @@ function createDraw(ps) {
   return g;
 }
 
+// ====================================================================== GAME 14: mouse maze (collect crumbs, dodge the cats, big cheese turns the tables)
+function createMaze(ps) {
+  const MAP = [
+    '#######################',
+    '#o.........#.........o#',
+    '#.###.####.#.####.###.#',
+    '#.....................#',
+    '#.###.#.#######.#.###.#',
+    '#.....#....#....#.....#',
+    '#####.####...####.#####',
+    '#####.#  ##-##  #.#####',
+    '     .   #CCC#   .     ',
+    '#####.#  #####  #.#####',
+    '#####.#.........#.#####',
+    '#.........#.#.........#',
+    '#.###.###.#.#.###.###.#',
+    '#o..#.....P.P.....#..o#',
+    '#.#.#.#.#######.#.#.#.#',
+    '#.....#.........#.....#',
+    '#######################',
+  ];
+  const RW = MAP.length, CW = MAP[0].length, CS = 56, OX = (W - CW * CS) / 2, OY = 112;
+  const DIRS = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0] }, OPP = { u: 'd', d: 'u', l: 'r', r: 'l' };
+  const food = new Map();                 // "c,r" -> 1 crumb | 5 big cheese
+  const spawnP = [], spawnC = [];
+  MAP.forEach((row, r) => [...row].forEach((ch, c) => {
+    if (ch === '.') food.set(c + ',' + r, 1);
+    if (ch === 'o') food.set(c + ',' + r, 5);
+    if (ch === 'P') spawnP.push([c, r]);
+    if (ch === 'C') spawnC.push([c, r]);
+  }));
+  const total = food.size;
+  const wall = (c, r, cat) => { if (r < 0 || r >= RW) return true; c = (c + CW) % CW; const ch = MAP[r][c]; return ch === '#' || (!cat && (ch === '-' || ch === 'C')); };
+  const list = ps.map((p, i) => ({ p, kind: 'mouse', score: 0, caught: 0 }));
+  const CATC = ['#ff922b', '#868e96', '#495057', '#e599f7'];
+  const cats = []; for (let i = 0; i < (list.length > 4 ? 4 : 3); i++) cats.push({ kind: 'cat', col: CATC[i], i });
+  let t = 0, scared = 0, ended = false, ROUND = 150;
+  const pops = [];
+  function place(a, cell) { Object.assign(a, { c: cell[0], r: cell[1], fx: cell[0], fy: cell[1], dir: null, want: null, prog: 0 }); }
+  list.forEach((m, i) => { place(m, spawnP[i % spawnP.length]); m.inv = 2; m.dead = 0; m.face = 'r'; });
+  cats.forEach((k, i) => { place(k, spawnC[i % spawnC.length]); k.release = 4 + i * 4; k.eaten = 0; });
+
+  // grid stepping: actors move cell to cell; at each cell centre they may turn
+  function stepActor(a, speed, dt, isCat, choose) {
+    let move = speed * dt;
+    while (move > 0) {
+      if (!a.dir || a.prog === 0) {
+        const opts = Object.keys(DIRS).filter(d => !wall(a.c + DIRS[d][0], a.r + DIRS[d][1], isCat));
+        let d = choose ? choose(a, opts) : (a.want && opts.includes(a.want) ? a.want : (a.dir && opts.includes(a.dir) ? a.dir : null));
+        if (!d) { a.dir = null; break; }
+        a.dir = d; if (!isCat) a.face = d;
+      }
+      const step = Math.min(move, 1 - a.prog);
+      a.prog += step; move -= step;
+      if (a.prog >= 1) { a.c = (a.c + DIRS[a.dir][0] + CW) % CW; a.r += DIRS[a.dir][1]; a.prog = 0; if (a.onCell) a.onCell(a); }
+      // a reversal is allowed mid-corridor for mice
+      if (!isCat && a.want && a.want === OPP[a.dir] && a.prog > 0) { a.c = (a.c + DIRS[a.dir][0] + CW) % CW; a.r += DIRS[a.dir][1]; a.prog = 1 - a.prog; a.dir = a.want; a.face = a.dir; }
+    }
+    const [dx, dy] = a.dir ? DIRS[a.dir] : [0, 0];
+    a.fx = a.c + dx * a.prog; a.fy = a.r + dy * a.prog;
+    if (a.fx > CW - 0.5) a.fx -= CW; if (a.fx < -0.5) a.fx += CW;
+  }
+  function eat(m) {
+    const k = m.c + ',' + m.r, v = food.get(k);
+    if (!v) return;
+    food.delete(k); m.score += v;
+    if (v === 5) { scared = 8; Music.sfx('whoosh'); send(m.p, { t: 'buzz', ms: [40, 30, 40] }); pops.push({ x: m.c, y: m.r, text: '🧀 +5', t: 0, color: '#ffe066' }); }
+  }
+  list.forEach(m => m.onCell = eat);
+  // cat brain: chase the nearest mouse (each cat a little differently), flee while scared, go home when caught
+  function catChoose(k, opts) {
+    const back = k.dir ? OPP[k.dir] : null;
+    let cand = opts.filter(d => d !== back); if (!cand.length) cand = opts;
+    if (k.eaten) { const home = spawnC[1]; return best(cand, k, home[0], home[1], 1); }
+    const inHouse = MAP[k.r][k.c] === 'C' || MAP[k.r][k.c] === '-';
+    if (inHouse) { if (t < k.release) return null; return best(cand, k, 11, 5, 1); }
+    if (Math.random() < 0.15) return cand[Math.floor(Math.random() * cand.length)];
+    const alive = list.filter(m => !m.dead);
+    if (!alive.length) return cand[Math.floor(Math.random() * cand.length)];
+    const tgt = alive.reduce((a, b) => (Math.abs(a.c - k.c) + Math.abs(a.r - k.r) < Math.abs(b.c - k.c) + Math.abs(b.r - k.r) ? a : b));
+    let tx = tgt.c, ty = tgt.r;
+    if (k.i === 1 && tgt.face) { tx += DIRS[tgt.face][0] * 3; ty += DIRS[tgt.face][1] * 3; }   // the ambusher aims ahead
+    return best(cand, k, tx, ty, scared > 0 ? -1 : 1);
+  }
+  function best(cand, k, tx, ty, sign) {
+    let bd = null, bv = Infinity;
+    for (const d of cand) { const nx = k.c + DIRS[d][0], ny = k.r + DIRS[d][1], v = sign * ((nx - tx) ** 2 + (ny - ty) ** 2); if (v < bv) { bv = v; bd = d; } }
+    return bd;
+  }
+  cats.forEach(k => k.onCell = k2 => { if (k2.eaten && MAP[k2.r][k2.c] === 'C') { k2.eaten = 0; k2.release = t + 1.5; } });
+
+  function finish() {
+    ended = true;
+    g.result = list.slice().sort((a, b) => b.score - a.score).map(m => ({ p: m.p, label: `${m.score} נק׳` }));
+  }
+  const bgImg = (() => {
+    const cv2 = document.createElement('canvas'); cv2.width = W; cv2.height = H; const x = cv2.getContext('2d');
+    x.fillStyle = '#1d3b2a'; x.fillRect(0, 0, W, H);
+    x.fillStyle = '#24492f'; for (let i = 0; i < 60; i++) { x.beginPath(); x.arc(Math.random() * W, Math.random() * H, 20 + Math.random() * 60, 0, Math.PI * 2); x.fill(); }
+    x.fillStyle = '#e9d8a6'; x.fillRect(OX - 10, OY - 10, CW * CS + 20, RW * CS + 20);
+    // hedges
+    for (let r = 0; r < RW; r++) for (let c = 0; c < CW; c++) {
+      const ch = MAP[r][c];
+      if (ch === '#') {
+        const px = OX + c * CS, py = OY + r * CS;
+        x.fillStyle = '#2f9e44'; x.fillRect(px - 1, py - 1, CS + 2, CS + 2);
+        x.fillStyle = '#40c057';
+        for (const [dx, dy] of [[0.3, 0.3], [0.7, 0.35], [0.35, 0.72], [0.72, 0.7]]) { x.beginPath(); x.arc(px + dx * CS, py + dy * CS, CS * 0.22, 0, Math.PI * 2); x.fill(); }
+      } else if (ch === '-') { x.fillStyle = '#c92a2a'; x.fillRect(OX + c * CS + 4, OY + r * CS + CS / 2 - 5, CS - 8, 10); }
+      else if (ch === 'C') { x.fillStyle = '#d6c08a'; x.fillRect(OX + c * CS, OY + r * CS, CS, CS); }
+    }
+    return cv2;
+  })();
+
+  const g = {
+    uiFor(p) { return list.some(m => m.p === p) ? { ui: 'dpad' } : null; },
+    input(p, m) { const me = list.find(x => x.p === p); if (me && DIRS[m.d]) me.want = m.d; },
+    update(dt) {
+      if (ended) return;
+      t += dt; scared = Math.max(0, scared - dt);
+      for (const m of list) {
+        m.inv = Math.max(0, m.inv - dt);
+        if (m.dead > 0) { m.dead -= dt; if (m.dead <= 0) { place(m, spawnP[Math.floor(Math.random() * spawnP.length)]); m.inv = 2; } continue; }
+        if (m.p.bot) botMouse(m);
+        stepActor(m, 5.4, dt, false);
+      }
+      for (const k of cats) stepActor(k, k.eaten ? 9 : scared > 0 ? 3 : 4.1 + Math.min(0.8, t / 150), dt, true, catChoose);
+      // catches
+      for (const m of list) {
+        if (m.dead > 0) continue;
+        for (const k of cats) {
+          if (k.eaten) continue;
+          let dx = Math.abs(m.fx - k.fx); dx = Math.min(dx, CW - dx);
+          if (dx + Math.abs(m.fy - k.fy) > 0.7) continue;
+          if (scared > 0) { k.eaten = 1; m.score += 20; pops.push({ x: k.fx, y: k.fy, text: '😼 +20', t: 0, color: '#74c0fc' }); Music.sfx('hit'); send(m.p, { t: 'buzz', ms: 60 }); }
+          else if (m.inv <= 0) {
+            m.dead = 2; m.caught++; const lost = Math.min(m.score, 5); m.score -= lost;
+            pops.push({ x: m.fx, y: m.fy, text: lost ? `🙀 -${lost}` : '🙀', t: 0, color: '#ff8787' });
+            Music.sfx('boom', 0.5); send(m.p, { t: 'buzz', ms: 300 });
+          }
+        }
+      }
+      for (const p of pops) p.t += dt;
+      for (let i = pops.length - 1; i >= 0; i--) if (pops[i].t > 1.2) pops.splice(i, 1);
+      if (!food.size || t >= ROUND) finish();
+    },
+    draw() {
+      ctx.drawImage(bgImg, 0, 0);
+      const cx = c => OX + (c + 0.5) * CS, cy = r => OY + (r + 0.5) * CS;
+      for (const [k, v] of food) {
+        const [c, r] = k.split(',').map(Number);
+        if (v === 1) { ctx.fillStyle = '#f5b700'; ctx.beginPath(); ctx.arc(cx(c), cy(r), 5, 0, Math.PI * 2); ctx.fill(); }
+        else { const b = 1 + Math.sin(t * 6) * 0.12; ctx.save(); ctx.translate(cx(c), cy(r)); ctx.scale(b, b);
+          ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.moveTo(-18, 12); ctx.lineTo(18, 12); ctx.lineTo(18, -4); ctx.lineTo(-18, -14); ctx.closePath(); ctx.fill();
+          ctx.strokeStyle = '#e67700'; ctx.lineWidth = 3; ctx.stroke(); ctx.fillStyle = '#e67700';
+          for (const [hx, hy, hr] of [[-6, 2, 3.5], [7, -1, 3], [10, 7, 2.5]]) { ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.fill(); }
+          ctx.restore(); }
+      }
+      for (const k of cats) drawCat(k, cx(k.fx), cy(k.fy));
+      for (const m of list) if (!(m.dead > 0)) drawMouse(m, cx(m.fx), cy(m.fy));
+      for (const p of pops) { ctx.globalAlpha = 1 - p.t / 1.2; T(p.text, cx(p.x), cy(p.y) - 30 - p.t * 40, 30, p.color); ctx.globalAlpha = 1; }
+      // HUD
+      const left = Math.max(0, Math.ceil(ROUND - t));
+      rrect(W / 2 - 330, 18, 660, 70, 35); ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fill();
+      T(`⏱ ${left}   ·   🧀 נשארו ${food.size}/${total}${scared > 0 ? `   ·   😱 החתולים בורחים! ${Math.ceil(scared)}` : ''}`, W / 2, 53, 30, scared > 0 ? '#74c0fc' : '#fff');
+      list.slice().sort((a, b) => b.score - a.score).forEach((m, i) => {
+        const x = i < 4 ? 20 : W - 220, y = OY + (i % 4) * 92;
+        rrect(x, y, 200, 80, 18); ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fill(); ctx.fillStyle = m.p.color; ctx.fillRect(x, y, 8, 80);
+        T(m.p.name, x + 104, y + 26, 26, m.p.color); T(`${m.score} נק׳${m.dead > 0 ? ' 🙀' : ''}`, x + 104, y + 58, 26, '#fff');
+      });
+    },
+  };
+  function botMouse(m) {
+    if (m.prog !== 0 && m.dir) return;
+    const opts = Object.keys(DIRS).filter(d => !wall(m.c + DIRS[d][0], m.r + DIRS[d][1], false));
+    let bestD = null, bestV = -Infinity;
+    for (const d of opts) {
+      const nx = (m.c + DIRS[d][0] + CW) % CW, ny = m.r + DIRS[d][1];
+      let v = (food.get(nx + ',' + ny) || 0) * 3 + Math.random() * 2 - (d === OPP[m.dir] ? 1.5 : 0);
+      for (const k of cats) { const dist = Math.abs(k.c - nx) + Math.abs(k.r - ny); if (!k.eaten && dist < 4) v += scared > 0 ? (6 - dist) : -(10 - dist * 2); }
+      if (v > bestV) { bestV = v; bestD = d; }
+    }
+    m.want = bestD;
+  }
+  function drawMouse(m, x, y) {
+    if (m.inv > 0 && Math.floor(m.inv * 10) % 2) ctx.globalAlpha = 0.4;
+    const ang = { r: 0, d: Math.PI / 2, l: Math.PI, u: -Math.PI / 2 }[m.face] || 0, wig = Math.sin(t * 20) * 3;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+    ctx.strokeStyle = '#f783ac'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-16, 0); ctx.quadraticCurveTo(-28, wig * 2, -34, -6 + wig); ctx.stroke();
+    ctx.fillStyle = m.p.color; ctx.beginPath(); ctx.ellipse(-2, 0, 18, 14, 0, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = '#2b2118'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(10, -11); ctx.lineTo(24, 0); ctx.lineTo(10, 11); ctx.closePath(); ctx.fill(); ctx.stroke();
+    for (const s of [-1, 1]) { ctx.fillStyle = m.p.color; ctx.beginPath(); ctx.arc(4, s * 13, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#ffc9c9'; ctx.beginPath(); ctx.arc(4, s * 13, 4, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = '#2b2118'; ctx.beginPath(); ctx.arc(24, 0, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(13, -5, 2.5, 0, Math.PI * 2); ctx.arc(13, 5, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  function drawCat(k, x, y) {
+    if (k.eaten) { ctx.fillStyle = '#fff'; for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(x + s * 7, y, 6, 0, Math.PI * 2); ctx.fill(); } ctx.fillStyle = '#000'; for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(x + s * 7, y, 3, 0, Math.PI * 2); ctx.fill(); } return; }
+    const sc = scared > 0, flash = sc && scared < 2 && Math.floor(t * 8) % 2;
+    const col = sc ? (flash ? '#fff' : '#4dabf7') : k.col, jit = sc ? Math.sin(t * 40) * 1.5 : 0;
+    ctx.save(); ctx.translate(x + jit, y);
+    ctx.fillStyle = col; ctx.strokeStyle = '#2b2118'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(-18, -8); ctx.lineTo(-14, -26); ctx.lineTo(-4, -14); ctx.lineTo(4, -14); ctx.lineTo(14, -26); ctx.lineTo(18, -8); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0, 2, 22, 20, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    if (!sc) { ctx.fillStyle = '#ffe066'; for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(s * 8, -1, 5, 6, 0, 0, Math.PI * 2); ctx.fill(); } ctx.fillStyle = '#000'; for (const s of [-1, 1]) ctx.fillRect(s * 8 - 1.2, -6, 2.4, 10); }
+    else { ctx.fillStyle = '#fff'; for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(s * 8, -1, 4, 0, Math.PI * 2); ctx.fill(); } ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.moveTo(-8, 12); for (let i = 0; i < 5; i++) ctx.lineTo(-8 + i * 4, 12 + (i % 2 ? -3 : 3)); ctx.stroke(); }
+    ctx.strokeStyle = sc ? '#fff' : '#2b2118'; ctx.lineWidth = 1.5;
+    for (const s of [-1, 1]) for (const dy of [5, 9]) { ctx.beginPath(); ctx.moveTo(s * 6, dy); ctx.lineTo(s * 24, dy + (dy - 7) * 1.5); ctx.stroke(); }
+    ctx.restore();
+  }
+  g.dbg = () => ({ list, cats, food });
+  return g;
+}
+
 // ====================================================================== music (generated live with Web Audio – original tunes, no files)
 const Music = (() => {
   let ac = null, master = null, noiseBuf = null, cur = null, step = 0, nextT = 0, enabled = true;
@@ -2822,6 +3036,9 @@ const Music = (() => {
     draw: build({ bpm: 124, prog: ['G2', 'E2m', 'C2', 'D2'], bass: 'x..x..x.x..x..x.', bassWave: 'triangle', bassVol: .5, arp: '0.1.2.1.0.1.2.1.', arpWave: 'triangle', arpVol: .1,
       mel: 'D5 . B4 . G4 . B4 D5 | E5 . D5 . B4 . . . | C5 . E5 . G5 . E5 . | D5 . . . A4 . B4 .', melWave: 'square', melVol: .07,
       drums: { k: 'x.......x.x.....', s: '....x.......x...', h: 'x.x.x.x.x.x.x.x.' } }),
+    maze: build({ bpm: 150, prog: ['C2', 'A1m', 'F1', 'G1'], bass: 'x.x.x.x.x.x.x.x.', bassWave: 'triangle', bassVol: .45, arp: '0.1.2.0.1.2.0.1.', arpWave: 'square', arpVol: .04,
+      mel: 'C5 E5 G5 E5 C6 . G5 . | A5 . F5 . A5 . C6 . | F5 A5 C6 A5 F5 . . . | G5 . B5 . D6 . B5 .', melWave: 'square', melVol: .07,
+      drums: { k: 'x...x...x...x...', s: '....x.......x...', h: '.x.x.x.x.x.x.x.x' } }),
     results: build({ bpm: 120, prog: ['C3', 'F2', 'G2', 'C3'], bass: 'x...o...x...o...', bassWave: 'triangle', bassVol: .5, arp: '0.1.2.1.0.1.2.1.', arpWave: 'triangle', arpVol: .1,
       mel: 'C5 . E5 . G5 . C6 . | A5 . F5 . A5 . C6 . | B5 . G5 . D6 . B5 . | C6 . . . . . . .', melWave: 'square', melVol: .09,
       drums: { k: 'x...x...x...x...', s: '....x.......x...' } }),
@@ -2909,6 +3126,7 @@ const GAMES = [
   { id: 'fight', name: 'קרב צללים', icon: '🥋', desc: 'אחד על אחד: אגרופים, בעיטות, הגנה ו👊+🦵 למכה מיוחדת · 1–8', create: createFight },
   { id: 'dino', name: 'ריצת דינו', icon: '🦖', desc: 'מרוץ קפיצות מעל מכשולים – נתקלים? מאבדים צעד · 1–8', create: createDino },
   { id: 'draw', name: 'מרוץ ציורים', icon: '🖍️', desc: 'מציירים גלגלים בטלפון: ⭕ לכביש, ➖ למים, 🔺 למדרגות · 1–8', create: createDraw },
+  { id: 'maze', name: 'מבוך העכברים', icon: '🐭', desc: 'אוספים פירורי גבינה במבוך ובורחים מהחתולים · 🧀 גדולה = תורכם לרדוף · 1–8', create: createMaze },
 ];
 
 renderLobby();
