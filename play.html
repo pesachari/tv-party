@@ -64,6 +64,23 @@
 
   .extra { flex: 0 0 auto; padding: 18px; border-radius: 18px; font-size: 22px; font-weight: 800; background: linear-gradient(90deg, #fcc419, #f76707); color: #2b1600; }
   .extra:disabled { background: #ffffff14; color: #fff; opacity: .6; }
+  .fightpad { flex: 1; display: flex; gap: 18px; direction: ltr; min-height: 0; }
+  .fmove { flex: 1; display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: 10px; }
+  .fmove .up { grid-column: 1 / 3; }
+  .fact { flex: 1; display: grid; grid-template: 1fr 1fr / 1fr 1fr; gap: 10px; }
+  .fact .blk { grid-column: 1 / 3; }
+  .fb { border-radius: 22px; background: #ffffff1c; font-size: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 60px; }
+  .fb small { font-size: 14px; font-weight: 800; }
+  .fb.on { background: #4dabf7; transform: scale(.96); }
+  .fb.atk { background: #c92a2a; } .fb.atk.on { background: #ff6b6b; }
+  .fb.blk { background: #1864ab; } .fb.blk.on { background: #4dabf7; }
+  .fb.jump { background: #2b8a3e; } .fb.jump.on { background: #51cf66; }
+  .dinorow { flex: 1; display: flex; gap: 14px; direction: ltr; min-height: 0; }
+  @media (orientation: portrait) { .dinorow { flex-direction: column-reverse; } }
+  .dj, .dd { border-radius: 28px; font-size: 90px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 0; }
+  .dj { flex: 3; background: linear-gradient(160deg, #40c057, #2b8a3e); } .dd { flex: 2; background: linear-gradient(160deg, #4dabf7, #1864ab); }
+  .dj small, .dd small { font-size: 22px; font-weight: 800; }
+  .dj.on, .dd.on { filter: brightness(1.3); transform: scale(.97); }
   .drawnow { text-align: center; font-size: 18px; } .drawnow b { font-size: 22px; }
   .drawbox { flex: 1; border-radius: 26px; background: #ffffff12; border: 3px dashed #ffffff40; min-height: 0; position: relative; }
   .drawbox canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
@@ -323,8 +340,9 @@ const UI = {
 
   dino(pad) {
     pad.appendChild(el('div', 'hint', 'קופצים מעל קקטוסים · ציפור באמצע? מתכופפים · החזיקו ⬆ לקפיצה גבוהה'));
-    const J = el('button', 'dj', '⬆<small>קפיצה</small>'), D = el('button', 'dd', '⬇<small>התכופפות</small>');
-    pad.appendChild(J); pad.appendChild(D);
+    const row = el('div', 'dinorow');
+    const D = el('button', 'dd', '⬇<small>התכופפות</small>'), J = el('button', 'dj', '⬆<small>קפיצה</small>');
+    row.appendChild(D); row.appendChild(J); pad.appendChild(row);
     for (const [b, key] of [[J, 'jump'], [D, 'duck']]) {
       const ids = new Set(); let on = 0;
       const upd = () => { const v = ids.size ? 1 : 0; b.classList.toggle('on', !!v); if (v !== on) { on = v; send({ t: 'in', [key]: v }); if (v) buzz(12); } };
@@ -336,8 +354,8 @@ const UI = {
   },
 
   draw(pad, m) {
-    pad.appendChild(el('div', 'hint', '⭕ עיגול = כביש · ➖ קו = מים · 🔺 משולש = מדרגות'));
-    pad.appendChild(el('div', 'drawnow', `הגלגלים שלך: <b>${esc(m.last || '')}</b> · ציירו חדש בכל רגע`));
+    pad.appendChild(el('div', 'hint', '⭕ עיגול = כביש · ➖ קו = מים · 🔺 משולש = מדרגות · ⭐ כוכב = לעוף'));
+    pad.appendChild(el('div', 'drawnow', `הגלגלים שלך: <b>${esc(m.last || '')}</b><br><small>ציירו צורה חדשה בכל רגע – היא תתיישר לצורה מושלמת</small>`));
     const wrap = el('div', 'drawbox'), cvs = document.createElement('canvas'); wrap.appendChild(cvs); pad.appendChild(wrap);
     const c2 = cvs.getContext('2d'); let pts = [], drawing = false;
     const fit = () => { const r = wrap.getBoundingClientRect(), d = devicePixelRatio || 1; cvs.width = r.width * d; cvs.height = r.height * d; c2.setTransform(d, 0, 0, d, 0, 0); c2.lineWidth = 10; c2.lineCap = c2.lineJoin = 'round'; c2.strokeStyle = myColor || '#fff'; };
