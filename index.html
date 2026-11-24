@@ -2406,11 +2406,11 @@ function createDino(ps) {
   const flyY = f => f.yb + Math.sin(f.ph + t * f.bobS) * f.amp;
   const flyX = f => f.x0 - f.vb * (t - f.t0);
   function spawnFlyer(lead) {
-    const kind = Math.random() < 0.6 ? 'bird' : 'bee', lvl = Math.random(), vb = kind === 'bee' ? rand(170, 240) : rand(90, 150), v = speed();
+    const kind = Math.random() < 0.6 ? 'bird' : 'bee', lvl = Math.random(), vb = kind === 'bee' ? rand(45, 75) : rand(15, 40), v = speed();
     // make sure it doesn't arrive right on top of a cactus (fair to jump/duck)
     let x0 = lead + 1700;
     for (let k = 0; k < 6; k++) { const meet = lead + v * (x0 - lead) / (v + vb); if (!OB.some(o => Math.abs(o.x - meet) < 260)) break; x0 += 260; }
-    FL.push({ kind, x0, t0: t, vb, yb: lvl < 0.45 ? 18 : lvl < 0.85 ? 62 : 110, amp: kind === 'bee' ? 14 : 10, bobS: kind === 'bee' ? 7 : 3, ph: rand(0, 6), w: kind === 'bee' ? 40 : 54, h: 30 });
+    FL.push({ kind, x0, t0: t, vb, yb: lvl < 0.45 ? 18 : lvl < 0.85 ? 62 : 110, amp: kind === 'bee' ? 8 : 6, bobS: kind === 'bee' ? 4 : 2.5, ph: rand(0, 6), w: kind === 'bee' ? 40 : 54, h: 30 });
   }
   // bots look at the nearest threat (ground or air) and either jump it or duck under it
   function bot(c) {
@@ -3274,7 +3274,7 @@ const GAMES = [
   { id: 'checkers', name: 'דמקה', icon: '⚫', desc: 'הקלאסיקה – אחד על אחד · 1–2', create: createCheckers },
   { id: 'fort', name: 'מלחמת שכנים', icon: '🏡', desc: 'שתי קבוצות, 10 בתים, 5 כלי נשק ובונוסים · 1–8', create: createFort },
   { id: 'tower', name: 'מגדל', icon: '🏗️', desc: 'בונים הכי גבוה בלחיצה אחת, ומפריעים ליריבים · 1–8', create: createTower },
-  { id: 'fight', name: 'קרב צללים', icon: '🥋', desc: 'אחד על אחד: אגרופים, בעיטות, הגנה ו👊+🦵 למכה מיוחדת · 1–8', create: createFight },
+  { id: 'fight', name: 'קרב צללים', icon: '🥋', desc: 'אחד על אחד: אגרופים, בעיטות, הגנה · ⬆+👊 למכה מיוחדת · 1–8', create: createFight },
   { id: 'dino', name: 'ריצת דינו', icon: '🦖', desc: 'קופצים ומתכופפים מעל מכשולים וציפורים · 3 פסילות ובחוץ · 1–8', create: createDino },
   { id: 'draw', name: 'מרוץ ציורים', icon: '🖍️', desc: 'מציירים גלגלים בטלפון: ⭕ כביש, ➖ מים, 🔺 מדרגות, ⭐ לעוף · 1–8', create: createDraw },
   { id: 'maze', name: 'מבוך העכברים', icon: '🐭', desc: 'אוספים פירורי גבינה במבוך ובורחים מהחתולים · 🧀 גדולה = תורכם לרדוף · 1–8', create: createMaze },
