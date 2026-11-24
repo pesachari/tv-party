@@ -84,7 +84,7 @@
   .drawnow { text-align: center; font-size: 18px; } .drawnow b { font-size: 22px; }
   .drawbox { flex: 1; border-radius: 26px; background: #ffffff12; border: 3px dashed #ffffff40; min-height: 0; position: relative; }
   .drawbox canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
-  .joy { flex: 1; display: flex; gap: 16px; align-items: center; justify-content: center; }
+  .joy { flex: 1; display: flex; gap: 16px; align-items: center; justify-content: space-evenly; direction: ltr; }
   @media (orientation: portrait) { .joy { flex-direction: column; } }
   .base { position: relative; width: min(78vw, 52vh); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(#ffffff10, #ffffff26); border: 3px solid #ffffff30; touch-action: none; }
   .stick { position: absolute; width: 40%; height: 40%; left: 30%; top: 30%; border-radius: 50%; box-shadow: 0 6px 20px #0009; }
@@ -358,7 +358,7 @@ const UI = {
   },
 
   draw(pad, m) {
-    pad.appendChild(el('div', 'hint', '⭕ עיגול = כביש · ➖ קו = מים · 🔺 משולש = מדרגות · ⭐ כוכב = לעוף'));
+    pad.appendChild(el('div', 'hint', 'ציירו גלגלים – ותגלו לבד איזו צורה מתאימה לכל שטח 😉'));
     pad.appendChild(el('div', 'drawnow', `הגלגלים שלך: <b>${esc(m.last || '')}</b><br><small>ציירו צורה חדשה בכל רגע – היא תתיישר לצורה מושלמת</small>`));
     const wrap = el('div', 'drawbox'), cvs = document.createElement('canvas'); wrap.appendChild(cvs); pad.appendChild(wrap);
     const c2 = cvs.getContext('2d'); let pts = [], drawing = false;
@@ -375,12 +375,12 @@ const UI = {
     cvs.addEventListener('pointerup', end); cvs.addEventListener('pointercancel', end);
   },
 
-  joystick(pad) {
-    pad.appendChild(el('div', 'hint', 'הזיזו את הג׳ויסטיק · "דחיפה" לזינוק'));
+  joystick(pad, m) {
+    pad.appendChild(el('div', 'hint', esc(m.hint || 'הזיזו את הג׳ויסטיק · "דחיפה" לזינוק')));
     const wrap = el('div', 'joy');
     const base = el('div', 'base'), stick = el('div', 'stick'); stick.style.background = myColor;
     base.appendChild(stick);
-    const dash = el('button', 'dash', 'דחיפה!');
+    const dash = el('button', 'dash', esc(m.dash || 'דחיפה!'));
     wrap.appendChild(base); wrap.appendChild(dash); pad.appendChild(wrap);
     let x = 0, y = 0, active = null, lastX = 9, lastY = 9;
     const setFrom = e => {
@@ -394,7 +394,14 @@ const UI = {
     base.addEventListener('pointermove', e => { if (e.pointerId === active) setFrom(e); });
     const release = e => { if (e.pointerId !== active) return; active = null; x = 0; y = 0; stick.style.left = '30%'; stick.style.top = '30%'; };
     base.addEventListener('pointerup', release); base.addEventListener('pointercancel', release);
-    dash.addEventListener('pointerdown', e => { e.preventDefault(); send({ t: 'in', dash: 1 }); buzz(30); dash.classList.add('hit'); setTimeout(() => dash.classList.remove('hit'), 120); });
+    if (m.hold) {   // hold-to-use button (e.g. turbo)
+      const ids = new Set(); let on = 0;
+      const upd = () => { const v = ids.size ? 1 : 0; dash.classList.toggle('hit', !!v); if (v !== on) { on = v; send({ t: 'in', boost: v }); if (v) buzz(20); } };
+      dash.addEventListener('pointerdown', e => { e.preventDefault(); try { dash.setPointerCapture(e.pointerId); } catch (x) {} ids.add(e.pointerId); upd(); });
+      const off = e => { ids.delete(e.pointerId); upd(); };
+      dash.addEventListener('pointerup', off); dash.addEventListener('pointercancel', off); dash.addEventListener('lostpointercapture', off);
+      cleanup.push(() => { if (on) send({ t: 'in', boost: 0 }); });
+    } else dash.addEventListener('pointerdown', e => { e.preventDefault(); send({ t: 'in', dash: 1 }); buzz(30); dash.classList.add('hit'); setTimeout(() => dash.classList.remove('hit'), 120); });
     const iv = setInterval(() => {
       const qx = Math.round(x * 100) / 100, qy = Math.round(y * 100) / 100;
       if (qx !== lastX || qy !== lastY) { send({ t: 'in', x: qx, y: qy }); lastX = qx; lastY = qy; }
