@@ -344,126 +344,152 @@ function drawResults(t) {
 
 // ====================================================================== GAME 1: light cycles
 function createTron(ps) {
-  const CW = 20, GW = 96, GH = 54, STEP = 0.075, START_LEN = 6, ROUND = 120, NGREEN = 16, NRED = 12, MAXEN = 3;
-  const D = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0] }, OPP = { u: 'd', d: 'u', l: 'r', r: 'l' };
-  const spawns = [[8, 14, 'r'], [87, 40, 'l'], [8, 40, 'r'], [87, 14, 'l'], [30, 5, 'd'], [65, 48, 'u'], [65, 5, 'd'], [30, 48, 'u']];
+  // free (analogue) steering: bikes turn smoothly towards wherever the joystick points
+  const CW = 20, SPD = 260, TURN = 4.2, START_LEN = 6, ROUND = 120, NGREEN = 14, NRED = 10, MAXEN = 3, LR = 20, TRW = 10, PT = 6;
+  const spawns = [[8, 14, 0], [87, 40, Math.PI], [8, 40, 0], [87, 14, Math.PI], [30, 5, Math.PI / 2], [65, 48, -Math.PI / 2], [65, 5, Math.PI / 2], [30, 48, -Math.PI / 2]];
   const list = ps.map(p => ({ p }));
   if (list.length === 1) list.push({ p: makeBot('מחשב') });
-  const grid = new Int16Array(GW * GH).fill(-1), cnt = new Int16Array(GW * GH);   // owner of each cell + how many times it's in the owner's trail
-  const lights = new Map();                                                           // cell -> 'g' | 'r'
-  list.forEach((c, i) => { const s = spawns[i]; Object.assign(c, { i, x: s[0], y: s[1], dir: s[2], next: s[2], alive: true, trail: [], len: START_LEN, greens: 0, flash: 0, boost: false, en: MAXEN }); occupy(c, c.y * GW + c.x); });
+  list.forEach((c, i) => { const s = spawns[i]; Object.assign(c, { i, x: s[0] * CW, y: s[1] * CW, ang: s[2], want: s[2], alive: true, trail: [[s[0] * CW, s[1] * CW]], len: START_LEN, flash: 0, boost: false, en: MAXEN, botT: 0 }); });
   const humans = list.filter(c => !c.p.bot);
-  let acc = 0, time = 0, sub = 0; const deaths = [], pops = [];
-  function occupy(c, k) { grid[k] = c.i; cnt[k]++; c.trail.push(k); while (c.trail.length > c.len) release(c); }
-  function release(c) { const k = c.trail.shift(); if (--cnt[k] <= 0) { cnt[k] = 0; grid[k] = -1; } }
-  // you may drive through your OWN line – only walls and other players' lines are deadly
-  const okFor = (c, x, y) => x >= 0 && y >= 0 && x < GW && y < GH && (grid[y * GW + x] < 0 || grid[y * GW + x] === c.i);
-  function placeLight(kind) {
+  const lights = [];          // {x, y, k: 'g' | 'r'}
+  let time = 0; const deaths = [], pops = [];
+  const lenPx = c => c.len * CW;
+  const fast = c => c.boost && c.en > 0;
+  function trim(c) {          // keep the trail as long as the bike's length
+    let total = 0;
+    for (let i = c.trail.length - 1; i > 0; i--) {
+      const [ax, ay] = c.trail[i], [bx, by] = c.trail[i - 1], d = Math.hypot(ax - bx, ay - by);
+      if (total + d >= lenPx(c)) { const k = (lenPx(c) - total) / d; c.trail[i - 1] = [ax + (bx - ax) * k, ay + (by - ay) * k]; c.trail.splice(0, i - 1); return; }
+      total += d;
+    }
+  }
+  const segDist = (px, py, ax, ay, bx, by) => { const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy; let t = l ? ((px - ax) * dx + (py - ay) * dy) / l : 0; t = Math.max(0, Math.min(1, t)); return Math.hypot(px - ax - dx * t, py - ay - dy * t); };
+  // does point (x,y) touch someone ELSE's line? (your own line is safe to cross)
+  function hitsOther(c, x, y, pad = TRW) {
+    for (const o of list) {
+      if (o === c || !o.alive) continue;
+      const tr = o.trail;
+      for (let i = 1; i < tr.length; i++) if (segDist(x, y, tr[i - 1][0], tr[i - 1][1], tr[i][0], tr[i][1]) < pad) return true;
+      if (Math.hypot(x - o.x, y - o.y) < pad + 4) return true;
+    }
+    return false;
+  }
+  const outside = (x, y, m = 6) => x < m || y < m || x > W - m || y > H - m;
+  function placeLight(k) {
     for (let tries = 0; tries < 200; tries++) {
-      const x = 2 + Math.floor(Math.random() * (GW - 4)), y = 2 + Math.floor(Math.random() * (GH - 4)), k = y * GW + x;
-      if (grid[k] < 0 && !lights.has(k) && !list.some(c => Math.abs(c.x - x) + Math.abs(c.y - y) < 4)) { lights.set(k, kind); return; }
+      const x = 60 + Math.random() * (W - 120), y = 60 + Math.random() * (H - 120);
+      if (lights.some(l => Math.hypot(l.x - x, l.y - y) < LR * 3)) continue;
+      if (list.some(c => Math.hypot(c.x - x, c.y - y) < 120 || c.trail.some(p => Math.hypot(p[0] - x, p[1] - y) < LR + 14))) continue;
+      lights.push({ x, y, k }); return;
     }
   }
   for (let i = 0; i < NGREEN; i++) placeLight('g');
   for (let i = 0; i < NRED; i++) placeLight('r');
 
-  function botThink(c) {
-    const opts = ['u', 'd', 'l', 'r'].filter(d => d !== OPP[c.dir]);
-    const safe = (d, n) => { for (let k = 1; k <= n; k++) { const x = c.x + D[d][0] * k, y = c.y + D[d][1] * k; if (!okFor(c, x, y) || lights.get(y * GW + x) === 'r') return false; } return true; };
-    let pick = opts.filter(d => safe(d, 3));
-    if (!pick.length) pick = opts.filter(d => okFor(c, c.x + D[d][0], c.y + D[d][1]));
-    if (!pick.length) return;
-    // head for the nearest green light
+  function botThink(c, dt) {
+    c.botT -= dt; if (c.botT > 0) return; c.botT = 0.08;
     let tgt = null, td = Infinity;
-    for (const [k, v] of lights) if (v === 'g') { const x = k % GW, y = (k / GW) | 0, d = Math.abs(x - c.x) + Math.abs(y - c.y); if (d < td) { td = d; tgt = [x, y]; } }
-    c.boost = !!tgt && td < 25 && c.en > 1 && safe(c.dir, 6);
-    if (tgt && Math.random() > 0.15) pick.sort((a, b) => (Math.abs(c.x + D[a][0] - tgt[0]) + Math.abs(c.y + D[a][1] - tgt[1])) - (Math.abs(c.x + D[b][0] - tgt[0]) + Math.abs(c.y + D[b][1] - tgt[1])));
-    else if (pick.includes(c.dir)) return;
-    c.next = pick[0];
+    for (const l of lights) if (l.k === 'g') { const d = Math.hypot(l.x - c.x, l.y - c.y); if (d < td) { td = d; tgt = l; } }
+    const goal = tgt ? Math.atan2(tgt.y - c.y, tgt.x - c.x) : c.ang;
+    let best = null, bs = -Infinity;
+    for (const off of [0, 0.35, -0.35, 0.8, -0.8, 1.3, -1.3, 2, -2]) {
+      const a = c.ang + off; let ok = true;
+      for (const d of [25, 55, 90]) { const x = c.x + Math.cos(a) * d, y = c.y + Math.sin(a) * d; if (outside(x, y, 14) || hitsOther(c, x, y, TRW + 8) || lights.some(l => l.k === 'r' && Math.hypot(l.x - x, l.y - y) < LR + 8)) { ok = false; break; } }
+      if (!ok) continue;
+      let diff = Math.abs(((goal - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      const sc = -diff - Math.abs(off) * 0.2;
+      if (sc > bs) { bs = sc; best = a; }
+    }
+    c.want = best !== null ? best : c.ang + 1.5;
+    c.boost = !!tgt && td < 400 && c.en > 1 && best !== null && Math.abs(best - c.ang) < 0.4;
   }
-
-  function kill(c) {
-    c.alive = false; c.deathT = time; deaths.push(c); send(c.p, { t: 'buzz', ms: 250 });
-    while (c.trail.length) release(c);       // the wreck disappears and frees the arena
-  }
+  function kill(c) { c.alive = false; c.deathT = time; deaths.push(c); send(c.p, { t: 'buzz', ms: 250 }); }
   function finish() {
     const still = list.filter(c => c.alive).sort((a, b) => b.len - a.len);
     const order = [...still, ...deaths.slice().reverse()].filter(c => !c.p.bot);
     g.result = order.map(c => ({ p: c.p, label: c.alive ? `שרד/ה 🏁 · אורך ${c.len}` : `שרד/ה ${c.deathT.toFixed(1)} שניות` }));
   }
-  const fast = c => c.boost && c.en > 0;
-  function tick() {
-    sub++;
-    const alive = list.filter(c => c.alive && (sub % 2 === 0 || fast(c)));
-    alive.forEach(c => { if (c.p.bot) botThink(c); c.dir = c.next; c.nx = c.x + D[c.dir][0]; c.ny = c.y + D[c.dir][1]; });
+  function step(dt) {
+    const alive = list.filter(c => c.alive);
+    for (const c of alive) {
+      if (c.p.bot) botThink(c, dt);
+      let diff = ((c.want - c.ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      c.ang += Math.max(-TURN * dt, Math.min(TURN * dt, diff));
+      const v = SPD * (fast(c) ? 2 : 1);
+      c.x += Math.cos(c.ang) * v * dt; c.y += Math.sin(c.ang) * v * dt;
+      const last = c.trail[c.trail.length - 1];
+      if (Math.hypot(c.x - last[0], c.y - last[1]) >= PT) c.trail.push([c.x, c.y]); else c.trail[c.trail.length - 1] = last.length ? last : [c.x, c.y];
+    }
     const dying = new Set();
-    alive.forEach(c => { if (!okFor(c, c.nx, c.ny)) dying.add(c); });
-    // riders that stand still this sub-step still block the cell they're on
-    list.forEach(o => { if (o.alive && !alive.includes(o)) alive.forEach(c => { if (c.nx === o.x && c.ny === o.y) dying.add(c); }); });
-    for (let a = 0; a < alive.length; a++) for (let b = a + 1; b < alive.length; b++)
-      if (alive[a].nx === alive[b].nx && alive[a].ny === alive[b].ny) { dying.add(alive[a]); dying.add(alive[b]); }
-    alive.forEach(c => {
-      if (dying.has(c)) { kill(c); return; }
-      c.x = c.nx; c.y = c.ny;
-      const k = c.y * GW + c.x, L = lights.get(k);
-      if (L) {
-        lights.delete(k); placeLight(L);
-        if (L === 'g') { c.len += 2; c.greens++; pops.push({ x: c.x, y: c.y, text: '+2', col: '#69db7c', t: 0 }); send(c.p, { t: 'buzz', ms: 30 }); Music.sfx('click'); }
-        else { c.len = Math.max(1, c.len - 1); c.flash = 0.3; pops.push({ x: c.x, y: c.y, text: '-1', col: '#ff6b6b', t: 0 }); send(c.p, { t: 'buzz', ms: 90 }); }
+    for (const c of alive) {
+      if (outside(c.x, c.y)) dying.add(c);
+      else if (hitsOther(c, c.x, c.y)) dying.add(c);
+    }
+    for (const c of alive) if (dying.has(c)) kill(c);
+    for (const c of list) if (!c.alive && c.trail.length) c.trail = [];      // wrecks vanish and free the arena
+    for (const c of list.filter(c => c.alive)) {
+      // keep the head attached to the trail
+      const tr = c.trail; tr.push([c.x, c.y]); trim(c); tr.pop(); if (Math.hypot(tr[tr.length - 1][0] - c.x, tr[tr.length - 1][1] - c.y) >= PT) tr.push([c.x, c.y]);
+      for (let i = lights.length - 1; i >= 0; i--) {
+        const l = lights[i];
+        if (Math.hypot(l.x - c.x, l.y - c.y) > LR + 8) continue;
+        lights.splice(i, 1); placeLight(l.k);
+        if (l.k === 'g') { c.len += 2; pops.push({ x: l.x, y: l.y, text: '+2', col: '#69db7c', t: 0 }); send(c.p, { t: 'buzz', ms: 30 }); Music.sfx('click'); }
+        else { c.len = Math.max(1, c.len - 1); c.flash = 0.3; pops.push({ x: l.x, y: l.y, text: '-1', col: '#ff6b6b', t: 0 }); send(c.p, { t: 'buzz', ms: 90 }); }
       }
-      occupy(c, k);
-    });
+    }
     const still = list.filter(c => c.alive);
-    if (sub % 2) return;
     if (still.length <= 1 || (humans.length && humans.every(c => !c.alive)) || time >= ROUND) finish();
   }
 
   const g = {
-    uiFor: p => list.some(c => c.p === p) ? { ui: 'joystick', hint: 'מכוונים עם הג׳ויסטיק · החזיקו ⚡ למהירות כפולה', dash: '⚡ טורבו x2', hold: true } : null,
+    uiFor: p => list.some(c => c.p === p) ? { ui: 'joystick', hint: 'מכוונים עם הג׳ויסטיק לכל כיוון · החזיקו ⚡ למהירות כפולה', dash: '⚡ טורבו x2', hold: true } : null,
     input(p, m) {
       const c = list.find(c => c.p === p); if (!c || !c.alive) return;
       if (typeof m.boost === 'number') c.boost = !!m.boost;
-      let d = m.d;
-      if (typeof m.x === 'number' && Math.hypot(m.x, m.y) > 0.35) d = Math.abs(m.x) > Math.abs(m.y) ? (m.x > 0 ? 'r' : 'l') : (m.y > 0 ? 'd' : 'u');
-      if (D[d] && d !== OPP[c.dir]) c.next = d;
+      if (typeof m.x === 'number' && Math.hypot(m.x, m.y) > 0.3) c.want = Math.atan2(m.y, m.x);
     },
     update(dt) {
-      time += dt; acc += dt;
+      time += dt;
       for (const c of list) { c.flash = Math.max(0, c.flash - dt); c.en = fast(c) ? Math.max(0, c.en - dt) : Math.min(MAXEN, c.en + dt * 0.5); }
       for (const p of pops) p.t += dt; for (let i = pops.length - 1; i >= 0; i--) if (pops[i].t > 0.9) pops.splice(i, 1);
-      while (acc >= STEP / 2 && !g.result) { acc -= STEP / 2; tick(); }
+      const n = Math.ceil(dt / (1 / 120));
+      for (let k = 0; k < n && !g.result; k++) { time += 0; step(dt / n); }
     },
     draw() {
       bg('#05070f', '#0b1530');
       ctx.strokeStyle = 'rgba(80,140,255,.07)'; ctx.lineWidth = 1;
-      for (let x = 0; x <= GW; x += 4) { ctx.beginPath(); ctx.moveTo(x * CW, 0); ctx.lineTo(x * CW, H); ctx.stroke(); }
-      for (let y = 0; y <= GH; y += 4) { ctx.beginPath(); ctx.moveTo(0, y * CW); ctx.lineTo(W, y * CW); ctx.stroke(); }
-      // traffic lights
+      for (let x = 0; x <= W; x += 80) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+      for (let y = 0; y <= H; y += 80) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+      // big traffic lights (2x2 squares)
       const pulse = 0.75 + Math.sin(time * 5) * 0.25;
-      for (const [k, v] of lights) {
-        const x = (k % GW) * CW + CW / 2, y = ((k / GW) | 0) * CW + CW / 2;
-        rrect(x - 11, y - 11, 22, 22, 6); ctx.fillStyle = '#1c1f26'; ctx.fill();
-        ctx.shadowColor = v === 'g' ? '#51cf66' : '#ff4d4d'; ctx.shadowBlur = 18 * pulse;
-        ctx.fillStyle = v === 'g' ? '#69db7c' : '#ff6b6b'; ctx.beginPath(); ctx.arc(x, y, 7.5, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.beginPath(); ctx.arc(x - 2.5, y - 2.5, 2.2, 0, Math.PI * 2); ctx.fill();
+      for (const l of lights) {
+        rrect(l.x - LR, l.y - LR, LR * 2, LR * 2, 10); ctx.fillStyle = '#1c1f26'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#495057'; ctx.stroke();
+        ctx.shadowColor = l.k === 'g' ? '#51cf66' : '#ff4d4d'; ctx.shadowBlur = 26 * pulse;
+        ctx.fillStyle = l.k === 'g' ? '#69db7c' : '#ff6b6b'; ctx.beginPath(); ctx.arc(l.x, l.y, LR * 0.72, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.beginPath(); ctx.arc(l.x - 5, l.y - 5, 4, 0, Math.PI * 2); ctx.fill();
       }
-      // trails: brighter towards the head
+      // light trails
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       for (const c of list) {
-        if (!c.alive) continue;
-        const n = c.trail.length;
-        c.trail.forEach((k, j) => { ctx.globalAlpha = 0.35 + 0.55 * (j + 1) / n; ctx.fillStyle = c.flash > 0 ? '#ff6b6b' : c.p.color; ctx.fillRect((k % GW) * CW + 2, ((k / GW) | 0) * CW + 2, CW - 4, CW - 4); });
+        if (!c.alive || c.trail.length < 2) continue;
+        const col = c.flash > 0 ? '#ff6b6b' : c.p.color;
+        ctx.strokeStyle = col; ctx.globalAlpha = 0.25; ctx.lineWidth = TRW * 2.2; ctx.beginPath(); c.trail.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.lineTo(c.x, c.y); ctx.stroke();
+        ctx.globalAlpha = 0.95; ctx.lineWidth = TRW; ctx.stroke();
       }
       ctx.globalAlpha = 1;
       for (const c of list) {
         if (!c.alive) continue;
-        ctx.shadowColor = fast(c) ? '#ffd43b' : c.p.color; ctx.shadowBlur = fast(c) ? 40 : 25; ctx.fillStyle = fast(c) ? '#ffe066' : '#fff';
-        ctx.fillRect(c.x * CW, c.y * CW, CW, CW); ctx.shadowBlur = 0;
-        // energy bar above the bike
-        ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(c.x * CW - 10, c.y * CW - 10, 40, 5);
-        ctx.fillStyle = c.en < 0.5 ? '#ff6b6b' : '#ffd43b'; ctx.fillRect(c.x * CW - 10, c.y * CW - 10, 40 * c.en / MAXEN, 5);
-        if (time < 3) T(c.p.name, c.x * CW + CW / 2, c.y * CW - 26, 30, c.p.color);
+        ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.ang);
+        ctx.shadowColor = fast(c) ? '#ffd43b' : c.p.color; ctx.shadowBlur = fast(c) ? 40 : 24;
+        ctx.fillStyle = fast(c) ? '#ffe066' : '#fff'; rrect(-14, -8, 28, 16, 8); ctx.fill();
+        ctx.shadowBlur = 0; ctx.fillStyle = c.p.color; ctx.fillRect(-6, -4, 14, 8);
+        ctx.restore();
+        ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(c.x - 20, c.y - 26, 40, 5);
+        ctx.fillStyle = c.en < 0.5 ? '#ff6b6b' : '#ffd43b'; ctx.fillRect(c.x - 20, c.y - 26, 40 * c.en / MAXEN, 5);
+        if (time < 3) T(c.p.name, c.x, c.y - 44, 30, c.p.color);
       }
-      for (const p of pops) { ctx.globalAlpha = 1 - p.t / 0.9; T(p.text, p.x * CW + CW / 2, p.y * CW - 14 - p.t * 30, 30, p.col); ctx.globalAlpha = 1; }
+      for (const p of pops) { ctx.globalAlpha = 1 - p.t / 0.9; T(p.text, p.x, p.y - 30 - p.t * 30, 32, p.col); ctx.globalAlpha = 1; }
       ctx.strokeStyle = 'rgba(120,170,255,.6)'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6);
       const left = Math.max(0, Math.ceil(ROUND - time));
       chips(list.map(c => ({ p: c.p, text: c.alive ? `📏 ${c.len} · ⚡${Math.round(c.en / MAXEN * 100)}%` : '💥', dim: !c.alive })), H - 36);
@@ -471,7 +497,7 @@ function createTron(ps) {
       T(`⏱ ${left}`, W / 2, 35, 28, left <= 10 ? '#ff8787' : '#fff');
     },
   };
-  g.dbg = () => ({ list, lights, grid, GW, tick });
+  g.dbg = () => ({ list, lights });
   return g;
 }
 
@@ -3285,7 +3311,7 @@ setInterval(updateMusicHint, 1500);
 
 // ====================================================================== registry
 const GAMES = [
-  { id: 'tron', name: 'אופנועי אור', icon: '🏍️', desc: 'ג׳ויסטיק + ⚡ טורבו · 🟢 מגדיל ב-2, 🔴 מקצר ב-1 · 1–8', create: createTron },
+  { id: 'tron', name: 'אופנועי אור', icon: '🏍️', desc: 'נוסעים חופשי עם ג׳ויסטיק + ⚡ טורבו · 🟢 מגדיל, 🔴 מקצר · 1–8', create: createTron },
   { id: 'pong', name: 'פונג', icon: '🏓', desc: 'מזיזים את המחבט עם האצבע · 1–4', create: createPong },
   { id: 'quiz', name: 'טריוויה', icon: '🧠', desc: 'מי עונה נכון והכי מהר · 1–8', create: createQuiz },
   { id: 'react', name: 'הכי מהיר', icon: '⚡', desc: 'לוחצים ברגע שהמסך ירוק · 1–8', create: createReact },
