@@ -344,16 +344,16 @@ function drawResults(t) {
 
 // ====================================================================== GAME 1: light cycles
 function createTron(ps) {
-  const CW = 20, GW = 96, GH = 54, STEP = 0.075, START_LEN = 6, ROUND = 120, NGREEN = 16, NRED = 12;
+  const CW = 20, GW = 96, GH = 54, STEP = 0.075, START_LEN = 6, ROUND = 120, NGREEN = 16, NRED = 12, MAXEN = 3;
   const D = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0] }, OPP = { u: 'd', d: 'u', l: 'r', r: 'l' };
   const spawns = [[8, 14, 'r'], [87, 40, 'l'], [8, 40, 'r'], [87, 14, 'l'], [30, 5, 'd'], [65, 48, 'u'], [65, 5, 'd'], [30, 48, 'u']];
   const list = ps.map(p => ({ p }));
   if (list.length === 1) list.push({ p: makeBot('מחשב') });
   const grid = new Int16Array(GW * GH).fill(-1), cnt = new Int16Array(GW * GH);   // owner of each cell + how many times it's in the owner's trail
   const lights = new Map();                                                           // cell -> 'g' | 'r'
-  list.forEach((c, i) => { const s = spawns[i]; Object.assign(c, { i, x: s[0], y: s[1], dir: s[2], next: s[2], alive: true, trail: [], len: START_LEN, greens: 0, flash: 0 }); occupy(c, c.y * GW + c.x); });
+  list.forEach((c, i) => { const s = spawns[i]; Object.assign(c, { i, x: s[0], y: s[1], dir: s[2], next: s[2], alive: true, trail: [], len: START_LEN, greens: 0, flash: 0, boost: false, en: MAXEN }); occupy(c, c.y * GW + c.x); });
   const humans = list.filter(c => !c.p.bot);
-  let acc = 0, time = 0; const deaths = [], pops = [];
+  let acc = 0, time = 0, sub = 0; const deaths = [], pops = [];
   function occupy(c, k) { grid[k] = c.i; cnt[k]++; c.trail.push(k); while (c.trail.length > c.len) release(c); }
   function release(c) { const k = c.trail.shift(); if (--cnt[k] <= 0) { cnt[k] = 0; grid[k] = -1; } }
   // you may drive through your OWN line – only walls and other players' lines are deadly
@@ -376,6 +376,7 @@ function createTron(ps) {
     // head for the nearest green light
     let tgt = null, td = Infinity;
     for (const [k, v] of lights) if (v === 'g') { const x = k % GW, y = (k / GW) | 0, d = Math.abs(x - c.x) + Math.abs(y - c.y); if (d < td) { td = d; tgt = [x, y]; } }
+    c.boost = !!tgt && td < 25 && c.en > 1 && safe(c.dir, 6);
     if (tgt && Math.random() > 0.15) pick.sort((a, b) => (Math.abs(c.x + D[a][0] - tgt[0]) + Math.abs(c.y + D[a][1] - tgt[1])) - (Math.abs(c.x + D[b][0] - tgt[0]) + Math.abs(c.y + D[b][1] - tgt[1])));
     else if (pick.includes(c.dir)) return;
     c.next = pick[0];
@@ -390,11 +391,15 @@ function createTron(ps) {
     const order = [...still, ...deaths.slice().reverse()].filter(c => !c.p.bot);
     g.result = order.map(c => ({ p: c.p, label: c.alive ? `שרד/ה 🏁 · אורך ${c.len}` : `שרד/ה ${c.deathT.toFixed(1)} שניות` }));
   }
+  const fast = c => c.boost && c.en > 0;
   function tick() {
-    const alive = list.filter(c => c.alive);
+    sub++;
+    const alive = list.filter(c => c.alive && (sub % 2 === 0 || fast(c)));
     alive.forEach(c => { if (c.p.bot) botThink(c); c.dir = c.next; c.nx = c.x + D[c.dir][0]; c.ny = c.y + D[c.dir][1]; });
     const dying = new Set();
     alive.forEach(c => { if (!okFor(c, c.nx, c.ny)) dying.add(c); });
+    // riders that stand still this sub-step still block the cell they're on
+    list.forEach(o => { if (o.alive && !alive.includes(o)) alive.forEach(c => { if (c.nx === o.x && c.ny === o.y) dying.add(c); }); });
     for (let a = 0; a < alive.length; a++) for (let b = a + 1; b < alive.length; b++)
       if (alive[a].nx === alive[b].nx && alive[a].ny === alive[b].ny) { dying.add(alive[a]); dying.add(alive[b]); }
     alive.forEach(c => {
@@ -409,17 +414,24 @@ function createTron(ps) {
       occupy(c, k);
     });
     const still = list.filter(c => c.alive);
+    if (sub % 2) return;
     if (still.length <= 1 || (humans.length && humans.every(c => !c.alive)) || time >= ROUND) finish();
   }
 
   const g = {
-    uiFor: p => list.some(c => c.p === p) ? { ui: 'dpad' } : null,
-    input(p, m) { const c = list.find(c => c.p === p); if (c && c.alive && D[m.d] && m.d !== OPP[c.dir]) c.next = m.d; },
+    uiFor: p => list.some(c => c.p === p) ? { ui: 'joystick', hint: 'מכוונים עם הג׳ויסטיק · החזיקו ⚡ למהירות כפולה', dash: '⚡ טורבו x2', hold: true } : null,
+    input(p, m) {
+      const c = list.find(c => c.p === p); if (!c || !c.alive) return;
+      if (typeof m.boost === 'number') c.boost = !!m.boost;
+      let d = m.d;
+      if (typeof m.x === 'number' && Math.hypot(m.x, m.y) > 0.35) d = Math.abs(m.x) > Math.abs(m.y) ? (m.x > 0 ? 'r' : 'l') : (m.y > 0 ? 'd' : 'u');
+      if (D[d] && d !== OPP[c.dir]) c.next = d;
+    },
     update(dt) {
       time += dt; acc += dt;
-      for (const c of list) c.flash = Math.max(0, c.flash - dt);
+      for (const c of list) { c.flash = Math.max(0, c.flash - dt); c.en = fast(c) ? Math.max(0, c.en - dt) : Math.min(MAXEN, c.en + dt * 0.5); }
       for (const p of pops) p.t += dt; for (let i = pops.length - 1; i >= 0; i--) if (pops[i].t > 0.9) pops.splice(i, 1);
-      while (acc >= STEP && !g.result) { acc -= STEP; tick(); }
+      while (acc >= STEP / 2 && !g.result) { acc -= STEP / 2; tick(); }
     },
     draw() {
       bg('#05070f', '#0b1530');
@@ -444,14 +456,17 @@ function createTron(ps) {
       ctx.globalAlpha = 1;
       for (const c of list) {
         if (!c.alive) continue;
-        ctx.shadowColor = c.p.color; ctx.shadowBlur = 25; ctx.fillStyle = '#fff';
+        ctx.shadowColor = fast(c) ? '#ffd43b' : c.p.color; ctx.shadowBlur = fast(c) ? 40 : 25; ctx.fillStyle = fast(c) ? '#ffe066' : '#fff';
         ctx.fillRect(c.x * CW, c.y * CW, CW, CW); ctx.shadowBlur = 0;
-        if (time < 3) T(c.p.name, c.x * CW + CW / 2, c.y * CW - 22, 30, c.p.color);
+        // energy bar above the bike
+        ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(c.x * CW - 10, c.y * CW - 10, 40, 5);
+        ctx.fillStyle = c.en < 0.5 ? '#ff6b6b' : '#ffd43b'; ctx.fillRect(c.x * CW - 10, c.y * CW - 10, 40 * c.en / MAXEN, 5);
+        if (time < 3) T(c.p.name, c.x * CW + CW / 2, c.y * CW - 26, 30, c.p.color);
       }
       for (const p of pops) { ctx.globalAlpha = 1 - p.t / 0.9; T(p.text, p.x * CW + CW / 2, p.y * CW - 14 - p.t * 30, 30, p.col); ctx.globalAlpha = 1; }
       ctx.strokeStyle = 'rgba(120,170,255,.6)'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6);
       const left = Math.max(0, Math.ceil(ROUND - time));
-      chips(list.map(c => ({ p: c.p, text: c.alive ? `📏 ${c.len}` : '💥', dim: !c.alive })), H - 36);
+      chips(list.map(c => ({ p: c.p, text: c.alive ? `📏 ${c.len} · ⚡${Math.round(c.en / MAXEN * 100)}%` : '💥', dim: !c.alive })), H - 36);
       rrect(W / 2 - 70, 12, 140, 46, 23); ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fill();
       T(`⏱ ${left}`, W / 2, 35, 28, left <= 10 ? '#ff8787' : '#fff');
     },
@@ -2847,8 +2862,7 @@ function createDraw(ps) {
         const gy = Math.min(groundY(sg.a - 30), WL) - 4;
         ctx.fillStyle = '#5c3d1e'; ctx.fillRect(sg.a - 34, gy - 120, 10, 120);
         rrect(sg.a - 100, gy - 200, 140, 90, 18); ctx.fillStyle = '#fff8e7'; ctx.fill(); ctx.lineWidth = 6; ctx.strokeStyle = '#5c3d1e'; ctx.stroke();
-        T(TERR[sg.k].icon, sg.a - 30, gy - 168, 46, '#000');
-        T({ road: '⭕', water: '➖', stairs: '🔺', sky: '⭐' }[sg.k], sg.a - 30, gy - 128, 24, '#000');
+        T(TERR[sg.k].icon, sg.a - 30, gy - 155, 54, '#000');
       }
     }
     if (FINISH > x0 && FINISH < x1) { const fy = groundY(FINISH); ctx.fillStyle = '#5c3d1e'; ctx.fillRect(FINISH - 8, fy - 240, 8, 240); for (let k = 0; k < 6; k++) for (let j = 0; j < 4; j++) { ctx.fillStyle = (k + j) % 2 ? '#222' : '#fff'; ctx.fillRect(FINISH + j * 20, fy - 240 + k * 20, 20, 20); } }
@@ -2860,8 +2874,8 @@ function createDraw(ps) {
     rrect(vx + 14, vy + 14, Math.min(vw - 28, 540), fs * 2.7, 20); ctx.fillStyle = 'rgba(30,20,40,.62)'; ctx.fill();
     ctx.fillStyle = me.p.color; rrect(vx + 14, vy + 14, 10, fs * 2.7, 5); ctx.fill();
     T(`#${me.place} ${me.p.name}${me.done ? ' 🏁' : ''}`, vx + 36, vy + 14 + fs * 0.8, fs, '#fff', 'left');
-    T(`${SHAPE_NAMES[me.shape.cls]} · ${TERR[seg.k].icon} ${f >= 0.9 ? '🚀 מהיר' : f >= 0.6 ? '🙂 בסדר' : '🐢 איטי – ציירו אחרת!'}`, vx + 36, vy + 14 + fs * 1.95, fs * 0.8, f >= 0.9 ? '#8ce99a' : f >= 0.6 ? '#ffe066' : '#ff8787', 'left');
-    if (next && !me.done) { const d = Math.max(0, Math.round((next.a - me.x) / 30)); if (d < 25) { const sky = next.k === 'sky', tw = Math.min(sky ? 560 : 380, vw * (sky ? 0.55 : 0.4)); rrect(vx + vw - tw - 14, vy + 14, tw, fs * 1.6, 18); ctx.fillStyle = sky ? `rgba(245,159,0,${0.75 + Math.sin(t * 8) * 0.2})` : 'rgba(30,20,40,.62)'; ctx.fill(); T(sky ? `בעוד ${d} מ׳: ☁️ תהום! ציירו ⭐ כדי לעוף` : `בעוד ${d} מ׳: ${TERR[next.k].icon} ${TERR[next.k].name}`, vx + vw - tw / 2 - 14, vy + 14 + fs * 0.8, fs * 0.82, '#fff'); } }
+    T(`${SHAPE_NAMES[me.shape.cls]} · ${TERR[seg.k].icon} ${f >= 0.9 ? '🚀 מהיר' : f >= 0.6 ? '🙂 בסדר' : '🐢 איטי'}`, vx + 36, vy + 14 + fs * 1.95, fs * 0.8, f >= 0.9 ? '#8ce99a' : f >= 0.6 ? '#ffe066' : '#ff8787', 'left');
+    if (next && !me.done) { const d = Math.max(0, Math.round((next.a - me.x) / 30)); if (d < 25) { const sky = next.k === 'sky', tw = Math.min(sky ? 560 : 380, vw * (sky ? 0.55 : 0.4)); rrect(vx + vw - tw - 14, vy + 14, tw, fs * 1.6, 18); ctx.fillStyle = sky ? `rgba(245,159,0,${0.75 + Math.sin(t * 8) * 0.2})` : 'rgba(30,20,40,.62)'; ctx.fill(); T(sky ? `⚠️ בעוד ${d} מ׳: ☁️ תהום!` : `⚠️ בעוד ${d} מ׳: ${TERR[next.k].icon} ${TERR[next.k].name}`, vx + vw - tw / 2 - 14, vy + 14 + fs * 0.8, fs * 0.82, '#fff'); } }
     const bw = vw - 60, by = vy + vh - 30;
     rrect(vx + 30, by, bw, 14, 7); ctx.fillStyle = 'rgba(30,20,40,.45)'; ctx.fill();
     for (const c of list) { const px = vx + 30 + bw * clamp(c.x / FINISH, 0, 1); ctx.fillStyle = c.p.color; ctx.beginPath(); ctx.arc(px, by + 7, c === me ? 12 : 8, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke(); }
@@ -3271,7 +3285,7 @@ setInterval(updateMusicHint, 1500);
 
 // ====================================================================== registry
 const GAMES = [
-  { id: 'tron', name: 'אופנועי אור', icon: '🏍️', desc: 'עוברים בקו של עצמכם · 🟢 מגדיל ב-2, 🔴 מקצר ב-1 · 1–8', create: createTron },
+  { id: 'tron', name: 'אופנועי אור', icon: '🏍️', desc: 'ג׳ויסטיק + ⚡ טורבו · 🟢 מגדיל ב-2, 🔴 מקצר ב-1 · 1–8', create: createTron },
   { id: 'pong', name: 'פונג', icon: '🏓', desc: 'מזיזים את המחבט עם האצבע · 1–4', create: createPong },
   { id: 'quiz', name: 'טריוויה', icon: '🧠', desc: 'מי עונה נכון והכי מהר · 1–8', create: createQuiz },
   { id: 'react', name: 'הכי מהיר', icon: '⚡', desc: 'לוחצים ברגע שהמסך ירוק · 1–8', create: createReact },
@@ -3282,7 +3296,7 @@ const GAMES = [
   { id: 'tower', name: 'מגדל', icon: '🏗️', desc: 'בונים הכי גבוה בלחיצה אחת, ומפריעים ליריבים · 1–8', create: createTower },
   { id: 'fight', name: 'קרב צללים', icon: '🥋', desc: 'אחד על אחד: אגרופים, בעיטות, הגנה · ⬆+👊 למכה מיוחדת · 1–8', create: createFight },
   { id: 'dino', name: 'ריצת דינו', icon: '🦖', desc: 'קופצים ומתכופפים מעל מכשולים וציפורים · 3 פסילות ובחוץ · 1–8', create: createDino },
-  { id: 'draw', name: 'מרוץ ציורים', icon: '🖍️', desc: 'מציירים גלגלים בטלפון: ⭕ כביש, ➖ מים, 🔺 מדרגות, ⭐ לעוף · 1–8', create: createDraw },
+  { id: 'draw', name: 'מרוץ ציורים', icon: '🖍️', desc: 'מציירים גלגלים בטלפון ומגלים איזו צורה מתאימה לכל שטח · 1–8', create: createDraw },
   { id: 'maze', name: 'מבוך העכברים', icon: '🐭', desc: 'אוספים פירורי גבינה במבוך ובורחים מהחתולים · 🧀 גדולה = תורכם לרדוף · 1–8', create: createMaze },
 ];
 
