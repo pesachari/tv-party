@@ -344,57 +344,102 @@ function drawResults(t) {
 
 // ====================================================================== GAME 1: light cycles
 function createTron(ps) {
-  const CW = 20, GW = 96, GH = 54, STEP = 0.075;
+  const CW = 20, GW = 96, GH = 54, STEP = 0.075, START_LEN = 6, ROUND = 120, NGREEN = 16, NRED = 12;
   const D = { u: [0, -1], d: [0, 1], l: [-1, 0], r: [1, 0] }, OPP = { u: 'd', d: 'u', l: 'r', r: 'l' };
   const spawns = [[8, 14, 'r'], [87, 40, 'l'], [8, 40, 'r'], [87, 14, 'l'], [30, 5, 'd'], [65, 48, 'u'], [65, 5, 'd'], [30, 48, 'u']];
   const list = ps.map(p => ({ p }));
   if (list.length === 1) list.push({ p: makeBot('מחשב') });
-  const grid = new Int16Array(GW * GH).fill(-1);
-  list.forEach((c, i) => { const s = spawns[i]; Object.assign(c, { i, x: s[0], y: s[1], dir: s[2], next: s[2], alive: true }); grid[c.y * GW + c.x] = i; });
+  const grid = new Int16Array(GW * GH).fill(-1), cnt = new Int16Array(GW * GH);   // owner of each cell + how many times it's in the owner's trail
+  const lights = new Map();                                                           // cell -> 'g' | 'r'
+  list.forEach((c, i) => { const s = spawns[i]; Object.assign(c, { i, x: s[0], y: s[1], dir: s[2], next: s[2], alive: true, trail: [], len: START_LEN, greens: 0, flash: 0 }); occupy(c, c.y * GW + c.x); });
   const humans = list.filter(c => !c.p.bot);
-  const free = (x, y) => x >= 0 && y >= 0 && x < GW && y < GH && grid[y * GW + x] < 0;
-  let acc = 0, time = 0; const deaths = [];
+  let acc = 0, time = 0; const deaths = [], pops = [];
+  function occupy(c, k) { grid[k] = c.i; cnt[k]++; c.trail.push(k); while (c.trail.length > c.len) release(c); }
+  function release(c) { const k = c.trail.shift(); if (--cnt[k] <= 0) { cnt[k] = 0; grid[k] = -1; } }
+  // you may drive through your OWN line – only walls and other players' lines are deadly
+  const okFor = (c, x, y) => x >= 0 && y >= 0 && x < GW && y < GH && (grid[y * GW + x] < 0 || grid[y * GW + x] === c.i);
+  function placeLight(kind) {
+    for (let tries = 0; tries < 200; tries++) {
+      const x = 2 + Math.floor(Math.random() * (GW - 4)), y = 2 + Math.floor(Math.random() * (GH - 4)), k = y * GW + x;
+      if (grid[k] < 0 && !lights.has(k) && !list.some(c => Math.abs(c.x - x) + Math.abs(c.y - y) < 4)) { lights.set(k, kind); return; }
+    }
+  }
+  for (let i = 0; i < NGREEN; i++) placeLight('g');
+  for (let i = 0; i < NRED; i++) placeLight('r');
 
   function botThink(c) {
     const opts = ['u', 'd', 'l', 'r'].filter(d => d !== OPP[c.dir]);
-    const safe = (d, n) => { for (let k = 1; k <= n; k++) if (!free(c.x + D[d][0] * k, c.y + D[d][1] * k)) return false; return true; };
-    if (safe(c.dir, 3) && Math.random() > 0.05) return;
+    const safe = (d, n) => { for (let k = 1; k <= n; k++) { const x = c.x + D[d][0] * k, y = c.y + D[d][1] * k; if (!okFor(c, x, y) || lights.get(y * GW + x) === 'r') return false; } return true; };
     let pick = opts.filter(d => safe(d, 3));
-    if (!pick.length) pick = opts.filter(d => safe(d, 1));
-    if (pick.length) c.next = pick[Math.floor(Math.random() * pick.length)];
+    if (!pick.length) pick = opts.filter(d => okFor(c, c.x + D[d][0], c.y + D[d][1]));
+    if (!pick.length) return;
+    // head for the nearest green light
+    let tgt = null, td = Infinity;
+    for (const [k, v] of lights) if (v === 'g') { const x = k % GW, y = (k / GW) | 0, d = Math.abs(x - c.x) + Math.abs(y - c.y); if (d < td) { td = d; tgt = [x, y]; } }
+    if (tgt && Math.random() > 0.15) pick.sort((a, b) => (Math.abs(c.x + D[a][0] - tgt[0]) + Math.abs(c.y + D[a][1] - tgt[1])) - (Math.abs(c.x + D[b][0] - tgt[0]) + Math.abs(c.y + D[b][1] - tgt[1])));
+    else if (pick.includes(c.dir)) return;
+    c.next = pick[0];
   }
 
+  function kill(c) {
+    c.alive = false; c.deathT = time; deaths.push(c); send(c.p, { t: 'buzz', ms: 250 });
+    while (c.trail.length) release(c);       // the wreck disappears and frees the arena
+  }
+  function finish() {
+    const still = list.filter(c => c.alive).sort((a, b) => b.len - a.len);
+    const order = [...still, ...deaths.slice().reverse()].filter(c => !c.p.bot);
+    g.result = order.map(c => ({ p: c.p, label: c.alive ? `שרד/ה 🏁 · אורך ${c.len}` : `שרד/ה ${c.deathT.toFixed(1)} שניות` }));
+  }
   function tick() {
     const alive = list.filter(c => c.alive);
     alive.forEach(c => { if (c.p.bot) botThink(c); c.dir = c.next; c.nx = c.x + D[c.dir][0]; c.ny = c.y + D[c.dir][1]; });
     const dying = new Set();
-    alive.forEach(c => { if (!free(c.nx, c.ny)) dying.add(c); });
+    alive.forEach(c => { if (!okFor(c, c.nx, c.ny)) dying.add(c); });
     for (let a = 0; a < alive.length; a++) for (let b = a + 1; b < alive.length; b++)
       if (alive[a].nx === alive[b].nx && alive[a].ny === alive[b].ny) { dying.add(alive[a]); dying.add(alive[b]); }
     alive.forEach(c => {
-      if (dying.has(c)) { c.alive = false; c.deathT = time; deaths.push(c); send(c.p, { t: 'buzz', ms: 250 }); }
-      else { c.x = c.nx; c.y = c.ny; grid[c.y * GW + c.x] = c.i; }
+      if (dying.has(c)) { kill(c); return; }
+      c.x = c.nx; c.y = c.ny;
+      const k = c.y * GW + c.x, L = lights.get(k);
+      if (L) {
+        lights.delete(k); placeLight(L);
+        if (L === 'g') { c.len += 2; c.greens++; pops.push({ x: c.x, y: c.y, text: '+2', col: '#69db7c', t: 0 }); send(c.p, { t: 'buzz', ms: 30 }); Music.sfx('click'); }
+        else { c.len = Math.max(1, c.len - 1); c.flash = 0.3; pops.push({ x: c.x, y: c.y, text: '-1', col: '#ff6b6b', t: 0 }); send(c.p, { t: 'buzz', ms: 90 }); }
+      }
+      occupy(c, k);
     });
     const still = list.filter(c => c.alive);
-    if (still.length <= 1 || humans.every(c => !c.alive)) {
-      const order = [...still, ...deaths.slice().reverse()].filter(c => !c.p.bot);
-      g.result = order.map(c => ({ p: c.p, label: c.alive ? 'שרד/ה עד הסוף! 🏁' : `שרד/ה ${c.deathT.toFixed(1)} שניות` }));
-    }
+    if (still.length <= 1 || (humans.length && humans.every(c => !c.alive)) || time >= ROUND) finish();
   }
 
   const g = {
     uiFor: p => list.some(c => c.p === p) ? { ui: 'dpad' } : null,
     input(p, m) { const c = list.find(c => c.p === p); if (c && c.alive && D[m.d] && m.d !== OPP[c.dir]) c.next = m.d; },
-    update(dt) { time += dt; acc += dt; while (acc >= STEP && !g.result) { acc -= STEP; tick(); } },
+    update(dt) {
+      time += dt; acc += dt;
+      for (const c of list) c.flash = Math.max(0, c.flash - dt);
+      for (const p of pops) p.t += dt; for (let i = pops.length - 1; i >= 0; i--) if (pops[i].t > 0.9) pops.splice(i, 1);
+      while (acc >= STEP && !g.result) { acc -= STEP; tick(); }
+    },
     draw() {
       bg('#05070f', '#0b1530');
       ctx.strokeStyle = 'rgba(80,140,255,.07)'; ctx.lineWidth = 1;
       for (let x = 0; x <= GW; x += 4) { ctx.beginPath(); ctx.moveTo(x * CW, 0); ctx.lineTo(x * CW, H); ctx.stroke(); }
       for (let y = 0; y <= GH; y += 4) { ctx.beginPath(); ctx.moveTo(0, y * CW); ctx.lineTo(W, y * CW); ctx.stroke(); }
-      for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
-        const o = grid[y * GW + x]; if (o < 0) continue;
-        const c = list[o]; ctx.fillStyle = c.p.color; ctx.globalAlpha = c.alive ? 0.8 : 0.3;
-        ctx.fillRect(x * CW + 2, y * CW + 2, CW - 4, CW - 4);
+      // traffic lights
+      const pulse = 0.75 + Math.sin(time * 5) * 0.25;
+      for (const [k, v] of lights) {
+        const x = (k % GW) * CW + CW / 2, y = ((k / GW) | 0) * CW + CW / 2;
+        rrect(x - 11, y - 11, 22, 22, 6); ctx.fillStyle = '#1c1f26'; ctx.fill();
+        ctx.shadowColor = v === 'g' ? '#51cf66' : '#ff4d4d'; ctx.shadowBlur = 18 * pulse;
+        ctx.fillStyle = v === 'g' ? '#69db7c' : '#ff6b6b'; ctx.beginPath(); ctx.arc(x, y, 7.5, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.beginPath(); ctx.arc(x - 2.5, y - 2.5, 2.2, 0, Math.PI * 2); ctx.fill();
+      }
+      // trails: brighter towards the head
+      for (const c of list) {
+        if (!c.alive) continue;
+        const n = c.trail.length;
+        c.trail.forEach((k, j) => { ctx.globalAlpha = 0.35 + 0.55 * (j + 1) / n; ctx.fillStyle = c.flash > 0 ? '#ff6b6b' : c.p.color; ctx.fillRect((k % GW) * CW + 2, ((k / GW) | 0) * CW + 2, CW - 4, CW - 4); });
       }
       ctx.globalAlpha = 1;
       for (const c of list) {
@@ -403,9 +448,15 @@ function createTron(ps) {
         ctx.fillRect(c.x * CW, c.y * CW, CW, CW); ctx.shadowBlur = 0;
         if (time < 3) T(c.p.name, c.x * CW + CW / 2, c.y * CW - 22, 30, c.p.color);
       }
+      for (const p of pops) { ctx.globalAlpha = 1 - p.t / 0.9; T(p.text, p.x * CW + CW / 2, p.y * CW - 14 - p.t * 30, 30, p.col); ctx.globalAlpha = 1; }
       ctx.strokeStyle = 'rgba(120,170,255,.6)'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6);
+      const left = Math.max(0, Math.ceil(ROUND - time));
+      chips(list.map(c => ({ p: c.p, text: c.alive ? `📏 ${c.len}` : '💥', dim: !c.alive })), H - 36);
+      rrect(W / 2 - 70, 12, 140, 46, 23); ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fill();
+      T(`⏱ ${left}`, W / 2, 35, 28, left <= 10 ? '#ff8787' : '#fff');
     },
   };
+  g.dbg = () => ({ list, lights, grid, GW, tick });
   return g;
 }
 
@@ -3214,7 +3265,7 @@ setInterval(updateMusicHint, 1500);
 
 // ====================================================================== registry
 const GAMES = [
-  { id: 'tron', name: 'אופנועי אור', icon: '🏍️', desc: 'אל תתנגשו בקירות ובשובל · 1–8', create: createTron },
+  { id: 'tron', name: 'אופנועי אור', icon: '🏍️', desc: 'עוברים בקו של עצמכם · 🟢 מגדיל ב-2, 🔴 מקצר ב-1 · 1–8', create: createTron },
   { id: 'pong', name: 'פונג', icon: '🏓', desc: 'מזיזים את המחבט עם האצבע · 1–4', create: createPong },
   { id: 'quiz', name: 'טריוויה', icon: '🧠', desc: 'מי עונה נכון והכי מהר · 1–8', create: createQuiz },
   { id: 'react', name: 'הכי מהיר', icon: '⚡', desc: 'לוחצים ברגע שהמסך ירוק · 1–8', create: createReact },
