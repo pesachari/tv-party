@@ -2687,7 +2687,13 @@ function createDraw(ps) {
   const SEG = []; { let x = 0; const push = (k, l) => { SEG.push({ k, a: x, b: x + l }); x += l; };
     push('road', 1300); let last = 'road';
     while (x < 17000) { const opts = ['road', 'water', 'stairs', 'sky'].filter(k => k !== last); const k = opts[Math.floor(Math.random() * opts.length)]; push(k, k === 'road' ? rand(1500, 2400) : rand(1300, 2000)); last = k; }
-    push('road', 900); }
+    push('road', 900);
+    // every track gets at least two free-fall canyons (never two in a row)
+    let skies = SEG.filter(sg => sg.k === 'sky').length;
+    for (let tries = 0; skies < 2 && tries < 50; tries++) {
+      const i = 2 + Math.floor(Math.random() * (SEG.length - 4));
+      if (SEG[i].k !== 'sky' && SEG[i - 1].k !== 'sky' && SEG[i + 1].k !== 'sky') { SEG[i].k = 'sky'; skies++; }
+    } }
   const FINISH = SEG[SEG.length - 1].b - 500, WL = 30;
   const segAt = x => SEG.find(s => x >= s.a && x < s.b) || SEG[SEG.length - 1];
   function groundY(x) {
@@ -2855,7 +2861,7 @@ function createDraw(ps) {
     ctx.fillStyle = me.p.color; rrect(vx + 14, vy + 14, 10, fs * 2.7, 5); ctx.fill();
     T(`#${me.place} ${me.p.name}${me.done ? ' 🏁' : ''}`, vx + 36, vy + 14 + fs * 0.8, fs, '#fff', 'left');
     T(`${SHAPE_NAMES[me.shape.cls]} · ${TERR[seg.k].icon} ${f >= 0.9 ? '🚀 מהיר' : f >= 0.6 ? '🙂 בסדר' : '🐢 איטי – ציירו אחרת!'}`, vx + 36, vy + 14 + fs * 1.95, fs * 0.8, f >= 0.9 ? '#8ce99a' : f >= 0.6 ? '#ffe066' : '#ff8787', 'left');
-    if (next && !me.done) { const d = Math.max(0, Math.round((next.a - me.x) / 30)); if (d < 25) { const tw = Math.min(380, vw * 0.4); rrect(vx + vw - tw - 14, vy + 14, tw, fs * 1.6, 18); ctx.fillStyle = 'rgba(30,20,40,.62)'; ctx.fill(); T(`בעוד ${d} מ׳: ${TERR[next.k].icon} ${TERR[next.k].name}`, vx + vw - tw / 2 - 14, vy + 14 + fs * 0.8, fs * 0.82, '#fff'); } }
+    if (next && !me.done) { const d = Math.max(0, Math.round((next.a - me.x) / 30)); if (d < 25) { const sky = next.k === 'sky', tw = Math.min(sky ? 560 : 380, vw * (sky ? 0.55 : 0.4)); rrect(vx + vw - tw - 14, vy + 14, tw, fs * 1.6, 18); ctx.fillStyle = sky ? `rgba(245,159,0,${0.75 + Math.sin(t * 8) * 0.2})` : 'rgba(30,20,40,.62)'; ctx.fill(); T(sky ? `בעוד ${d} מ׳: ☁️ תהום! ציירו ⭐ כדי לעוף` : `בעוד ${d} מ׳: ${TERR[next.k].icon} ${TERR[next.k].name}`, vx + vw - tw / 2 - 14, vy + 14 + fs * 0.8, fs * 0.82, '#fff'); } }
     const bw = vw - 60, by = vy + vh - 30;
     rrect(vx + 30, by, bw, 14, 7); ctx.fillStyle = 'rgba(30,20,40,.45)'; ctx.fill();
     for (const c of list) { const px = vx + 30 + bw * clamp(c.x / FINISH, 0, 1); ctx.fillStyle = c.p.color; ctx.beginPath(); ctx.arc(px, by + 7, c === me ? 12 : 8, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke(); }
