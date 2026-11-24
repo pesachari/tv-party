@@ -306,7 +306,7 @@ const UI = {
   },
 
   fight(pad) {
-    pad.appendChild(el('div', 'hint', '👊+🦵 ביחד = ⚡ מכה מיוחדת (כשהפס מלא) · 3 אגרופים ברצף = אפרקאט'));
+    pad.appendChild(el('div', 'hint', '⬆ + 👊 או 🦵 = ⚡ מכה מיוחדת (כשהפס מלא) · 3 אגרופים ברצף = אפרקאט'));
     const box = el('div', 'fightpad');
     const mv = el('div', 'fmove'), ac = el('div', 'fact');
     const mk = (parent, cls, html) => { const b = el('button', cls, html); parent.appendChild(b); return b; };
@@ -326,12 +326,16 @@ const UI = {
       const off = e => { held[k].delete(e.pointerId); upd(); };
       btn.addEventListener('pointerup', off); btn.addEventListener('pointercancel', off); btn.addEventListener('lostpointercapture', off);
     }
-    const lastHit = { p: 0, k: 0 };
+    const lastHit = { p: 0, k: 0 }, up = new Set(); let lastUp = -1e9;
+    J.addEventListener('pointerup', e => up.delete(e.pointerId)); J.addEventListener('pointercancel', e => up.delete(e.pointerId));
     for (const [btn, code] of [[J, 'jump'], [P, 'p'], [K, 'k']]) btn.addEventListener('pointerdown', e => {
       e.preventDefault(); btn.classList.add('on'); setTimeout(() => btn.classList.remove('on'), 110);
-      if (code !== 'jump') {
-        const now = performance.now(), other = code === 'p' ? 'k' : 'p'; lastHit[code] = now;
-        if (now - lastHit[other] < 180) { send({ t: 'in', b: 's' }); buzz([20, 20, 40]); return; }   // both together = special
+      const now = performance.now();
+      if (code === 'jump') { up.add(e.pointerId); lastUp = now; }
+      else {
+        const other = code === 'p' ? 'k' : 'p'; lastHit[code] = now;
+        // ⬆ held (or just tapped) + punch/kick = special · punch+kick together also works
+        if (up.size || now - lastUp < 250 || now - lastHit[other] < 180) { send({ t: 'in', b: 's' }); buzz([20, 20, 40]); return; }
       }
       send({ t: 'in', b: code }); buzz(15);
     });
